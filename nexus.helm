@@ -1,0 +1,17 @@
+entity nexus {
+    kind = "lib"
+    use c_shared_library {
+        params {
+            SOURCE_FILES = [
+                glob("src", include="**/*.c", recursive=true),
+            ]
+            OUT_NAME = "nexus"
+            CPPFLAGS = [ "-I.", "-Isrc" ] 
+        }
+    }
+
+    interface {
+        CPPFLAGS = [ "-Ilibs" ] 
+        LDFLAGS = [ "-lnexus" ]
+    }
+}
