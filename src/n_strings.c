@@ -145,3 +145,37 @@ uint64 nexus_strings_string_format_with_truncation(char *string, uint64 max_stri
 
   return required_length;
 }
+
+uint64 nexus_strings_vstring_format(char *string, uint64 max_string_length, const char *format, va_list args) {
+  uint64 required_length;
+
+  if (!string || !format || max_string_length == 0) {
+    return 0;
+  }
+
+  required_length = core_format_engine(NULL, 0, format, args);
+
+  if (required_length >= max_string_length) {
+    return 0;
+  }
+
+  core_format_engine(string, max_string_length, format, args);
+
+  return required_length;
+}
+
+uint64 nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args) {
+  uint64 required_length;
+
+  if (!string || !format || max_string_length == 0) {
+    return 0;
+  }
+
+  required_length = core_format_engine(string, max_string_length, format, args);
+
+  if (required_length >= max_string_length) {
+    return max_string_length - 1;
+  }
+
+  return required_length;
+}

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdarg.h>
+
 /* ---------------------------------------------------------------------------- */
 /* GLOBAL DEFINES                                                               */
 /* ---------------------------------------------------------------------------- */
@@ -333,3 +335,25 @@ It returns the amount of characters written.
 Note: as of this moment, this does not support floating-point formats.
 */
 extern uint64 nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...);
+
+/*
+nexus_strings_vstring_format formats a vstring with a `max_string_length`
+
+If the formatted string would be more than the `max_string_length`, this implementation does not do anything and returns 0.
+Otherwise, it returns the amount of characters written.
+
+Note: as of this moment, this does not support floating-point formats.
+
+Performance: prefer `nexus_strings_string_format_with_truncation` because it does not do double work.
+*/
+extern uint64 nexus_strings_vstring_format(char *string, uint64 max_string_length, const char *format, va_list args);
+
+/*
+nexus_strings_vstring_format_with_truncation formats a vstring with a `max_string_length`
+
+If the formatted string would be more than the `max_string_length`, this implementation stops at the boundary.
+It returns the amount of characters written.
+
+Note: as of this moment, this does not support floating-point formats.
+*/
+extern uint64 nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args);
