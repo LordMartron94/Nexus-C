@@ -1,7 +1,7 @@
 #pragma once
 
 /* ---------------------------------------------------------------------------- */
-/* GLOBAL DEFINES */
+/* GLOBAL DEFINES                                                               */
 /* ---------------------------------------------------------------------------- */
 
 /*
@@ -107,10 +107,11 @@ typedef float f_real;
 #  define NEXUS_ERROR_CODE_USE_OF_UNINITIALIZED_OBJECT 0x3
 #  define NEXUS_ERROR_CODE_PRINT_FORMAT_FAILURE        0x4
 #  define NEXUS_ERROR_CODE_CLOCK_FAILURE               0x5
+#  define NEXUS_ERROR_CODE_ALLOCATION_FAILURE          0x6
 #endif
 
 /* ---------------------------------------------------------------------------- */
-/* TIME */
+/* TIME                                                                         */
 /* ---------------------------------------------------------------------------- */
 
 #ifndef NEXUS_TIME_DEFINES
@@ -277,3 +278,32 @@ This safely intercepts the OS timezone and DST rules without destroying the
 mathematical integrity of the underlying integer.
 */
 extern NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time);
+
+/* ---------------------------------------------------------------------------- */
+/* COLOR                                                                        */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusColorRGBA8 stores 8 bit rgba colors.
+*/
+typedef struct NexusColorRGBA8 {
+  uint8 red;
+  uint8 green;
+  uint8 blue;
+  uint8 alpha;
+} NexusColorRGBA8;
+
+/*
+nexus_color_rgba8_create creates a `NexusColorRGBA8` struct from red, green, blue, and alpha components.
+
+This is strictly a utility function as you can just as well construct the struct directly.
+*/
+extern NexusColorRGBA8 nexus_color_rgba8_create(uint8 red, uint8 green, uint8 blue, uint8 alpha);
+
+/*
+nexus_color_rgba8_create_rgb creates a `NexusColorRGBA8` struct from red, green, and blue components.
+It sets alpha to 255 as it is unused (meaning full opacity).
+
+This is strictly a utility function as you can just as well construct the struct directly.
+*/
+extern NexusColorRGBA8 nexus_color_rgba8_create_rgb(uint8 red, uint8 green, uint8 blue);
