@@ -10,39 +10,121 @@ static uint64 core_format_engine(char *buffer, uint64 max_len, const char *forma
   const char *format_cursor = format;
 
   while (*format_cursor) {
+    int left_justify  = 0;
+    int zero_pad      = 0;
+    int width         = 0;
+    int has_precision = 0;
+    int precision     = 0;
+    int i;
+
     if (*format_cursor != '%') {
-      if (buffer && written < max_len - 1) {
+      if (buffer && written < max_len - 1)
         buffer[written] = *format_cursor;
-      }
       written++;
       format_cursor++;
       continue;
     }
 
-    format_cursor++;
+    format_cursor++; /* Skip '%' */
+
     if (*format_cursor == '\0') {
       break;
     }
 
+    /* 1. Parse Flags */
+    while (*format_cursor == '-' || *format_cursor == '0') {
+      if (*format_cursor == '-')
+        left_justify = 1;
+      if (*format_cursor == '0')
+        zero_pad = 1;
+      format_cursor++;
+    }
+
+    /* 2. Parse Width */
+    if (*format_cursor == '*') {
+      width = va_arg(args, int);
+      if (width < 0) {
+        left_justify = 1;
+        width        = -width;
+      }
+      format_cursor++;
+    } else {
+      while (*format_cursor >= '0' && *format_cursor <= '9') {
+        width = (width * 10) + (*format_cursor - '0');
+        format_cursor++;
+      }
+    }
+
+    /* 3. Parse Precision */
+    if (*format_cursor == '.') {
+      has_precision = 1;
+      format_cursor++;
+      if (*format_cursor == '*') {
+        precision = va_arg(args, int);
+        if (precision < 0)
+          has_precision = 0;
+        format_cursor++;
+      } else {
+        while (*format_cursor >= '0' && *format_cursor <= '9') {
+          precision = (precision * 10) + (*format_cursor - '0');
+          format_cursor++;
+        }
+      }
+    }
+
+    /* 4. Evaluate Specifier */
     if (*format_cursor == '%') {
       if (buffer && written < max_len - 1)
         buffer[written] = '%';
       written++;
     } else if (*format_cursor == 'c') {
       char character = (char)va_arg(args, int);
+      if (!left_justify) {
+        for (i = 1; i < width; i++) {
+          if (buffer && written < max_len - 1)
+            buffer[written] = ' ';
+          written++;
+        }
+      }
       if (buffer && written < max_len - 1)
         buffer[written] = character;
       written++;
+      if (left_justify) {
+        for (i = 1; i < width; i++) {
+          if (buffer && written < max_len - 1)
+            buffer[written] = ' ';
+          written++;
+        }
+      }
     } else if (*format_cursor == 's') {
       const char *string = va_arg(args, const char *);
-      if (!string) {
+      int         len    = 0;
+      if (!string)
         string = "(null)";
+
+      /* Calculate string length honoring precision boundaries */
+      while (string[len] && (!has_precision || len < precision)) {
+        len++;
       }
-      while (*string) {
+
+      if (!left_justify) {
+        for (i = len; i < width; i++) {
+          if (buffer && written < max_len - 1)
+            buffer[written] = ' ';
+          written++;
+        }
+      }
+      for (i = 0; i < len; i++) {
         if (buffer && written < max_len - 1)
-          buffer[written] = *string;
+          buffer[written] = string[i];
         written++;
-        string++;
+      }
+      if (left_justify) {
+        for (i = len; i < width; i++) {
+          if (buffer && written < max_len - 1)
+            buffer[written] = ' ';
+          written++;
+        }
       }
     } else if (*format_cursor == 'd' || *format_cursor == 'i' || *format_cursor == 'u' || *format_cursor == 'x') {
       char          num_buf[32];
@@ -50,6 +132,8 @@ static uint64 core_format_engine(char *buffer, uint64 max_len, const char *forma
       unsigned long uval    = 0;
       int           is_neg  = 0;
       int           base    = (*format_cursor == 'x') ? 16 : 10;
+      int           zeros   = 0;
+      int           total_len;
 
       if (*format_cursor == 'd' || *format_cursor == 'i') {
         int ival = va_arg(args, int);
@@ -72,17 +156,58 @@ static uint64 core_format_engine(char *buffer, uint64 max_len, const char *forma
           uval /= base;
         }
       }
-      if (is_neg) {
-        num_buf[num_len++] = '-';
+
+      /* Resolve precision and zero padding conflicts */
+      if (has_precision) {
+        zero_pad = 0;
+        if (precision > num_len) {
+          zeros = precision - num_len;
+        }
+      } else if (zero_pad && !left_justify) {
+        if (width > (num_len + is_neg)) {
+          zeros = width - (num_len + is_neg);
+        }
       }
 
+      total_len = num_len + is_neg + zeros;
+
+      if (!left_justify) {
+        for (i = total_len; i < width; i++) {
+          if (buffer && written < max_len - 1)
+            buffer[written] = ' ';
+          written++;
+        }
+      }
+
+      if (is_neg) {
+        if (buffer && written < max_len - 1)
+          buffer[written] = '-';
+        written++;
+      }
+
+      for (i = 0; i < zeros; i++) {
+        if (buffer && written < max_len - 1)
+          buffer[written] = '0';
+        written++;
+      }
+
+      /* Write reversed string */
       while (num_len > 0) {
         num_len--;
         if (buffer && written < max_len - 1)
           buffer[written] = num_buf[num_len];
         written++;
       }
+
+      if (left_justify) {
+        for (i = total_len; i < width; i++) {
+          if (buffer && written < max_len - 1)
+            buffer[written] = ' ';
+          written++;
+        }
+      }
     } else {
+      /* Unsupported specifier: print literally */
       if (buffer && written < max_len - 1)
         buffer[written] = '%';
       written++;
