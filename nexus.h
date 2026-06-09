@@ -307,3 +307,29 @@ It sets alpha to 255 as it is unused (meaning full opacity).
 This is strictly a utility function as you can just as well construct the struct directly.
 */
 extern NexusColorRGBA8 nexus_color_rgba8_create_rgb(uint8 red, uint8 green, uint8 blue);
+
+/* ---------------------------------------------------------------------------- */
+/* STRINGS                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_strings_string_format formats a string with a `max_string_length`
+
+If the formatted string would be more than the `max_string_length`, this implementation does not do anything and returns 0.
+Otherwise, it returns the amount of characters written.
+
+Note: as of this moment, this does not support floating-point formats.
+
+Performance: prefer `nexus_strings_string_format_with_truncation` because it does not do double work.
+*/
+extern uint64 nexus_strings_string_format(char *string, uint64 max_string_length, const char *format, ...);
+
+/*
+nexus_strings_string_format_with_truncation formats a string with a `max_string_length`
+
+If the formatted string would be more than the `max_string_length`, this implementation stops at the boundary.
+It returns the amount of characters written.
+
+Note: as of this moment, this does not support floating-point formats.
+*/
+extern uint64 nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...);

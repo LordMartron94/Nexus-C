@@ -1,0 +1,147 @@
+#include <stdarg.h>
+#include "../nexus.h"
+
+/*
+Implementation written on 9 June 2026 by Gemini AI Pro.
+*/
+
+static uint64 core_format_engine(char *buffer, uint64 max_len, const char *format, va_list args) {
+  uint64      written       = 0;
+  const char *format_cursor = format;
+
+  while (*format_cursor) {
+    if (*format_cursor != '%') {
+      if (buffer && written < max_len - 1) {
+        buffer[written] = *format_cursor;
+      }
+      written++;
+      format_cursor++;
+      continue;
+    }
+
+    format_cursor++;
+    if (*format_cursor == '\0') {
+      break;
+    }
+
+    if (*format_cursor == '%') {
+      if (buffer && written < max_len - 1)
+        buffer[written] = '%';
+      written++;
+    } else if (*format_cursor == 'c') {
+      char character = (char)va_arg(args, int);
+      if (buffer && written < max_len - 1)
+        buffer[written] = character;
+      written++;
+    } else if (*format_cursor == 's') {
+      const char *string = va_arg(args, const char *);
+      if (!string) {
+        string = "(null)";
+      }
+      while (*string) {
+        if (buffer && written < max_len - 1)
+          buffer[written] = *string;
+        written++;
+        string++;
+      }
+    } else if (*format_cursor == 'd' || *format_cursor == 'i' || *format_cursor == 'u' || *format_cursor == 'x') {
+      char          num_buf[32];
+      int           num_len = 0;
+      unsigned long uval    = 0;
+      int           is_neg  = 0;
+      int           base    = (*format_cursor == 'x') ? 16 : 10;
+
+      if (*format_cursor == 'd' || *format_cursor == 'i') {
+        int ival = va_arg(args, int);
+        if (ival < 0) {
+          is_neg = 1;
+          uval   = (unsigned long)(-ival);
+        } else {
+          uval = (unsigned long)ival;
+        }
+      } else {
+        uval = (unsigned long)va_arg(args, unsigned int);
+      }
+
+      if (uval == 0) {
+        num_buf[num_len++] = '0';
+      } else {
+        while (uval > 0) {
+          unsigned long rem  = uval % base;
+          num_buf[num_len++] = (rem < 10) ? (char)('0' + rem) : (char)('a' + rem - 10);
+          uval /= base;
+        }
+      }
+      if (is_neg) {
+        num_buf[num_len++] = '-';
+      }
+
+      while (num_len > 0) {
+        num_len--;
+        if (buffer && written < max_len - 1)
+          buffer[written] = num_buf[num_len];
+        written++;
+      }
+    } else {
+      if (buffer && written < max_len - 1)
+        buffer[written] = '%';
+      written++;
+      if (buffer && written < max_len - 1)
+        buffer[written] = *format_cursor;
+      written++;
+    }
+    format_cursor++;
+  }
+
+  if (buffer && max_len > 0) {
+    if (written < max_len) {
+      buffer[written] = '\0';
+    } else {
+      buffer[max_len - 1] = '\0';
+    }
+  }
+
+  return written;
+}
+
+uint64 nexus_strings_string_format(char *string, uint64 max_string_length, const char *format, ...) {
+  va_list args;
+  uint64  required_length;
+
+  if (!string || !format || max_string_length == 0) {
+    return 0;
+  }
+
+  va_start(args, format);
+  required_length = core_format_engine(NULL, 0, format, args);
+  va_end(args);
+
+  if (required_length >= max_string_length) {
+    return 0;
+  }
+
+  va_start(args, format);
+  core_format_engine(string, max_string_length, format, args);
+  va_end(args);
+
+  return required_length;
+}
+
+uint64 nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...) {
+  va_list args;
+  uint64  required_length;
+
+  if (!string || !format || max_string_length == 0) {
+    return 0;
+  }
+
+  va_start(args, format);
+  required_length = core_format_engine(string, max_string_length, format, args);
+  va_end(args);
+
+  if (required_length >= max_string_length) {
+    return max_string_length - 1;
+  }
+
+  return required_length;
+}
