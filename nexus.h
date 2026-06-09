@@ -222,10 +222,6 @@ typedef struct NexusDuration {
   NexusTimePrecision precision;
 } NexusDuration;
 
-/*
-Duration Initializers
-Constructs a duration with the corresponding precision attached.
-*/
 extern NexusDuration nexus_time_duration_from_nanoseconds(int64 nanoseconds);
 extern NexusDuration nexus_time_duration_from_microseconds(int64 microseconds);
 extern NexusDuration nexus_time_duration_from_milliseconds(int64 milliseconds);
