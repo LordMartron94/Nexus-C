@@ -110,6 +110,7 @@ typedef float f_real;
 #  define NEXUS_ERROR_CODE_PRINT_FORMAT_FAILURE        0x4
 #  define NEXUS_ERROR_CODE_CLOCK_FAILURE               0x5
 #  define NEXUS_ERROR_CODE_ALLOCATION_FAILURE          0x6
+#  define NEXUS_ERROR_CODE_FILE_FAILURE                0x7
 #endif
 
 /* ---------------------------------------------------------------------------- */
@@ -357,3 +358,145 @@ It returns the amount of characters written.
 Note: as of this moment, this does not support floating-point formats.
 */
 extern uint64 nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args);
+
+/*
+nexus_strings_string_length gets the current length of a string.
+*/
+extern uint64 nexus_strings_string_length(const char *string);
+
+/* Checks if a string exactly starts with the provided prefix. */
+extern boolean nexus_strings_string_starts_with(const char *string, const char *prefix);
+
+/* Performs a safe, bounded copy of a string. Guarantees null-termination. */
+extern void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src);
+
+/* Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2. */
+extern int32 nexus_strings_string_compare(const char *str1, const char *str2);
+
+/* ---------------------------------------------------------------------------- */
+/* PATHS                                                                        */
+/* ---------------------------------------------------------------------------- */
+
+#ifndef NEXUS_MAX_PATH_LENGTH
+#  define NEXUS_MAX_PATH_LENGTH 1024
+#endif
+
+/*
+NexusPath encapsulates a platform-agnostic path representation.
+*/
+typedef struct NexusPath {
+  char   buffer[NEXUS_MAX_PATH_LENGTH];
+  uint16 length;
+} NexusPath;
+
+/*
+nexus_paths_path_create initializes a path from a raw C string.
+*/
+extern NexusPath nexus_paths_path_create(const char *base_path);
+
+/*
+nexus_paths_path_append appends a new element to the path, automatically handling separators.
+*/
+extern void nexus_paths_path_append(NexusPath *path, const char *element);
+
+/*
+NexusPathWalkCallback gets called during path walking.
+*/
+typedef void NexusPathWalkCallback(NexusPath path, void *user_data);
+
+/*
+nexus_paths_path_walk walks a path using the provided configuration and calls the provided callback.
+
+If both files_only and dirs_only is set, files_only takes precedence (it does not error)
+*/
+extern void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void *user_data, boolean recursive, boolean files_only,
+                                  boolean dirs_only);
+
+/* Returns a pointer to the base file name within the path buffer. No allocation. */
+extern const char *nexus_paths_path_base_name_get(const NexusPath *path);
+
+/* ---------------------------------------------------------------------------- */
+/* FILESYSTEM                                                                   */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusFileHandle is a handle to a file connection.
+*/
+typedef void NexusFileHandle;
+
+/*
+NexusFileMode encapsulates the modes for opening files.
+*/
+typedef enum NexusFileMode {
+  NFM_READ,
+  NFM_READ_BINARY,
+  NFM_WRITE,
+  NFM_WRITE_BINARY,
+  NFM_APPEND,
+  NFM_APPEND_BINARY,
+  NFM_READ_PLUS,
+  NFM_READ_BINARY_PLUS,
+  NFM_WRITE_PLUS,
+  NFM_WRITE_BINARY_PLUS,
+  NFM_APPEND_PLUS,
+  NFM_APPEND_BINARY_PLUS
+} NexusFileMode;
+
+/*
+nexus_filesystem_directory_create creates a single directory.
+Returns true on success or if it already exists.
+*/
+extern boolean nexus_filesystem_directory_create(NexusPath directory_path);
+
+/*
+nexus_filesystem_path_is_dir checks whether a path is a directory.
+*/
+extern boolean nexus_filesystem_path_is_dir(NexusPath path);
+
+/*
+nexus_filesystem_path_exists checks if a path exists.
+*/
+extern boolean nexus_filesystem_path_exists(NexusPath path);
+
+/*
+nexus_filesystem_file_delete deletes a file if it exists.
+
+If it does not exist, this is a no-op.
+*/
+extern void nexus_filesystem_file_delete(NexusPath file_path);
+
+/*
+nexus_filesystem_directory_delete deletes a directory if it exists.
+
+If it does not exist, this is a no-op.
+
+When recursive is not set to true, this function skips if the directory is not empty.
+
+Returns true on success and false on failure.
+*/
+extern boolean nexus_filesystem_directory_delete(NexusPath directory_path, boolean recursive);
+
+/*
+nexus_filesystem_file_open opens a connection to a given file_path.
+*/
+extern NexusFileHandle *nexus_filesystem_file_open(NexusPath file_path, NexusFileMode mode);
+
+/*
+nexus_filesystem_file_close closes a currently opened file-connection.
+*/
+extern void nexus_filesystem_file_close(NexusFileHandle *file_handle);
+
+/*
+nexus_filesystem_file_rename renames/moves a file.
+*/
+extern boolean nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_path);
+
+/*
+nexus_filesystem_file_write writes bytes to an opened file and returns the amount of bytes written.
+*/
+extern uint64 nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint64 length);
+
+/*
+nexus_filesystem_file_flush flushes a file.
+*/
+extern void nexus_filesystem_file_flush(NexusFileHandle *file_handle);

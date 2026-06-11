@@ -304,3 +304,48 @@ uint64 nexus_strings_vstring_format_with_truncation(char *string, uint64 max_str
 
   return required_length;
 }
+
+uint64 nexus_strings_string_length(const char *string) {
+  const char *ptr = string;
+  while (*ptr) {
+    ptr++;
+  }
+  return (uint64)(ptr - string);
+}
+
+boolean nexus_strings_string_starts_with(const char *string, const char *prefix) {
+  if (!string || !prefix)
+    return FALSE;
+  while (*prefix) {
+    if (*string != *prefix)
+      return FALSE;
+    string++;
+    prefix++;
+  }
+  return TRUE;
+}
+
+void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src) {
+  uint64 i = 0;
+  if (!dest || dest_max_len == 0)
+    return;
+  if (!src) {
+    dest[0] = '\0';
+    return;
+  }
+  while (src[i] && i < (dest_max_len - 1)) {
+    dest[i] = src[i];
+    i++;
+  }
+  dest[i] = '\0';
+}
+
+int32 nexus_strings_string_compare(const char *str1, const char *str2) {
+  if (!str1 || !str2)
+    return 0;
+  while (*str1 && (*str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *(const unsigned char *)str1 - *(const unsigned char *)str2;
+}
