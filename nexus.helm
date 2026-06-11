@@ -6,12 +6,15 @@ entity nexus {
                 glob("src", include="**/*.c", recursive=true),
             ]
             OUT_NAME = "nexus"
-            CPPFLAGS = [ "-I.", "-Isrc" ] 
+            CPPFLAGS = [ "-I.", "-Isrc" ]
+            COMPILER_FLAGS = LIBRARY_COMPILER_FLAGS
         }
     }
 
     interface {
-        CPPFLAGS = [ "-Ilibs" ] 
-        LDFLAGS = [ "-lnexus" ]
+        CPPFLAGS = [ "-Ilibs" ]
+        LDFLAGS = [ "-lnexus", "-lstb" ]
     }
+
+    deps = [ "//external/stb:stb" ]
 }

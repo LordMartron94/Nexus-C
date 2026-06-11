@@ -22,7 +22,7 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #  elif defined(__linux__)
 #    define NEXUS_PLATFORM_LINUX 1
 #  else
-#    error Unsupported platform
+#    error "Unsupported platform"
 #  endif
 #endif
 
@@ -90,7 +90,7 @@ typedef uint64 timestamp;
 
 /* PRECISIONS */
 
-#define NEXUS_DOUBLE_PRECISION /* if NEXUS_DOUBLE_PRECISION is defined the type "f_real" is defined as double otherwhise it will be defined as       \
+#define NEXUS_DOUBLE_PRECISION /* if NEXUS_DOUBLE_PRECISION is defined the type "f_real" is defined as double otherwise it will be defined as        \
                                float. This is very useful if you want to write an application that can be compiled to use either 32 or 64 bit        \
                                floating point math.                                                                                                  \
                                */
@@ -316,48 +316,60 @@ extern NexusColorRGBA8 nexus_color_rgba8_create_rgb(uint8 red, uint8 green, uint
 /* ---------------------------------------------------------------------------- */
 
 /*
+NexusStringFormatResult reports the outcome of a bounded string format operation.
+
+written_length: Characters written into the destination buffer, excluding the null terminator.
+required_length: Characters required for the full formatted output, excluding the null terminator.
+truncated: TRUE when required_length exceeds what could fit within max_string_length.
+success: TRUE when formatting completed according to the selected function variant.
+*/
+typedef struct NexusStringFormatResult {
+  uint64 written_length;
+  uint64 required_length;
+  uint8  truncated;
+  uint8  success;
+} NexusStringFormatResult;
+
+/*
 nexus_strings_string_format formats a string with a `max_string_length`
 
-If the formatted string would be more than the `max_string_length`, this implementation does not do anything and returns 0.
-Otherwise, it returns the amount of characters written.
-
-Note: as of this moment, this does not support floating-point formats.
+If the formatted string would be more than the `max_string_length`, this implementation does not write
+to the destination buffer and returns success=FALSE with truncated=TRUE.
+Otherwise, it returns success=TRUE with written_length equal to required_length.
 
 Performance: prefer `nexus_strings_string_format_with_truncation` because it does not do double work.
 */
-extern uint64 nexus_strings_string_format(char *string, uint64 max_string_length, const char *format, ...);
+extern NexusStringFormatResult nexus_strings_string_format(char *string, uint64 max_string_length, const char *format, ...);
 
 /*
 nexus_strings_string_format_with_truncation formats a string with a `max_string_length`
 
-If the formatted string would be more than the `max_string_length`, this implementation stops at the boundary.
-It returns the amount of characters written.
-
-Note: as of this moment, this does not support floating-point formats.
+If the formatted string would be more than the `max_string_length`, this implementation stops at the boundary,
+null-terminates the destination buffer, and returns truncated=TRUE with success=TRUE.
+Otherwise, it returns success=TRUE with written_length equal to required_length.
 */
-extern uint64 nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...);
+extern NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...);
 
 /*
 nexus_strings_vstring_format formats a vstring with a `max_string_length`
 
-If the formatted string would be more than the `max_string_length`, this implementation does not do anything and returns 0.
-Otherwise, it returns the amount of characters written.
+If the formatted string would be more than the `max_string_length`, this implementation does not write
+to the destination buffer and returns success=FALSE with truncated=TRUE.
+Otherwise, it returns success=TRUE with written_length equal to required_length.
 
-Note: as of this moment, this does not support floating-point formats.
-
-Performance: prefer `nexus_strings_string_format_with_truncation` because it does not do double work.
+Performance: prefer `nexus_strings_vstring_format_with_truncation` because it does not do double work.
 */
-extern uint64 nexus_strings_vstring_format(char *string, uint64 max_string_length, const char *format, va_list args);
+extern NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_string_length, const char *format, va_list args);
 
 /*
 nexus_strings_vstring_format_with_truncation formats a vstring with a `max_string_length`
 
-If the formatted string would be more than the `max_string_length`, this implementation stops at the boundary.
-It returns the amount of characters written.
-
-Note: as of this moment, this does not support floating-point formats.
+If the formatted string would be more than the `max_string_length`, this implementation stops at the boundary,
+null-terminates the destination buffer, and returns truncated=TRUE with success=TRUE.
+Otherwise, it returns success=TRUE with written_length equal to required_length.
 */
-extern uint64 nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args);
+extern NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format,
+                                                                            va_list args);
 
 /*
 nexus_strings_string_length gets the current length of a string.
@@ -500,3 +512,97 @@ extern uint64 nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *by
 nexus_filesystem_file_flush flushes a file.
 */
 extern void nexus_filesystem_file_flush(NexusFileHandle *file_handle);
+
+/* ---------------------------------------------------------------------------- */
+/* ASSERTIONS                                                                   */
+/* ---------------------------------------------------------------------------- */
+
+/* TODO: refactor into a global runtime?? */
+
+#ifndef NEXUS_ASSERTIONS_ENABLED
+#  define NEXUS_ASSERTIONS_ENABLED 1
+#endif
+
+#ifndef NEXUS_DEBUG_ENABLED
+#  define NEXUS_DEBUG_ENABLED 1
+#endif
+
+#if NEXUS_ASSERTIONS_ENABLED
+#  if _MSC_VER
+#    include <intrin.h>
+#    define debug_break() __debugbreak()
+#  else
+#    include <signal.h>
+#    define debug_break() raise(SIGTRAP)
+#  endif /* _MSC_VER */
+
+/*
+ErrorMessageReportCallback is the callback that gets invoked when an assertion fails.
+
+This is usually set to either an "ERROR" or "CRITICAL" report in a logger, depending on client interpretation.
+*/
+typedef void ErrorMessageReportCallback(void *user_data, const char *message, const char *file, uint32 line);
+
+/*
+nexus_assertions_error_callback_set sets the callback used for reporting assertion failures.
+*/
+extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
+
+/*
+nexus_assertion_failure_report reports an assertion failure.
+*/
+extern void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line);
+
+#  define NEXUS_ASSERT(expr)                                                                                                                         \
+    {                                                                                                                                                \
+      if (expr) {                                                                                                                                    \
+      } else {                                                                                                                                       \
+        nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                              \
+        debug_break();                                                                                                                               \
+      }                                                                                                                                              \
+    }
+
+#  define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                        \
+    {                                                                                                                                                \
+      if (expr) {                                                                                                                                    \
+      } else {                                                                                                                                       \
+        nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                         \
+        debug_break();                                                                                                                               \
+      }                                                                                                                                              \
+    }
+
+#  if NEXUS_DEBUG_ENABLED
+
+#    define NEXUS_ASSERT_DEBUG(expr)                                                                                                                 \
+      {                                                                                                                                              \
+        if (expr) {                                                                                                                                  \
+        } else {                                                                                                                                     \
+          nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                            \
+          debug_break();                                                                                                                             \
+        }                                                                                                                                            \
+      }
+
+#    define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                                \
+      {                                                                                                                                              \
+        if (expr) {                                                                                                                                  \
+        } else {                                                                                                                                     \
+          nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                       \
+          debug_break();                                                                                                                             \
+        }                                                                                                                                            \
+      }
+
+#  else
+
+#    define NEXUS_ASSERT_DEBUG(expr)
+#    define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
+
+#  endif /* NEXUS_DEBUG_ENABLED */
+
+#else
+
+#  define NEXUS_ASSERT(expr)
+#  define NEXUS_ASSERT_MESSAGE(expr, message)
+#  define NEXUS_ASSERT_DEBUG(expr)
+#  define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
+
+#endif /* NEXUS_ASSERTIONS_ENABLED */
