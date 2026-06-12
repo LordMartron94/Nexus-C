@@ -247,6 +247,34 @@ Useful in nexus_debug_mem_print output to identify buffers. Returns TRUE when bu
 extern boolean nexus_debug_mem_comment(void *buf, char *comment);
 
 /*
+NexusDebugMemSummary holds aggregate allocation statistics recorded by the memory debugger.
+Counters respect nexus_debug_mem_active and are cleared by nexus_debug_mem_reset.
+*/
+typedef struct NexusDebugMemSummary {
+  size_t  live_bytes;
+  size_t  peak_live_bytes;
+  uint32  live_block_count;
+  uint32  peak_live_block_count;
+  uint64  total_bytes_allocated;
+  uint64  total_bytes_freed;
+  uint64  allocation_count;
+  uint64  free_count;
+  uint32  call_site_count;
+  size_t  largest_allocation_bytes;
+} NexusDebugMemSummary;
+
+/*
+nexus_debug_mem_summary_get writes current allocation statistics into summary.
+summary must not be NULL. Thread-safe when initialized via nexus_debug_mem_thread_safe_init.
+*/
+extern void nexus_debug_mem_summary_get(NexusDebugMemSummary *summary);
+
+/*
+nexus_debug_mem_summary_print writes a human-readable allocation statistics overview to stdout.
+*/
+extern void nexus_debug_mem_summary_print(void);
+
+/*
 nexus_debug_mem_print writes a human-readable leak report to stdout.
 Lists each call site whose net allocation count (allocated minus freed) exceeds min_allocs,
 including byte totals, live allocation counts, and any comments registered on live blocks.
@@ -334,6 +362,7 @@ extern void exit_crash(uint32 status_code);
 #    define nexus_debug_mem_log_callback_set(n, m)
 #    define nexus_debug_mem_comment(n, m)
 #    define nexus_debug_mem_print(n)
+#    define nexus_debug_mem_summary_print()
 #    define nexus_debug_mem_reset()
 #    define nexus_debug_mem_consumption()                0
 #    define nexus_debug_mem_footprint(n)                 0
@@ -614,6 +643,12 @@ null-terminates the destination buffer, and returns truncated=TRUE with success=
 Otherwise, it returns success=TRUE with written_length equal to required_length.
 */
 extern NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args);
+
+/*
+nexus_strings_bytes_format writes byte_count as a human-readable binary size (B, KiB, MiB, GiB, TiB).
+Uses IEC binary prefixes (1024). string must not be NULL and max_string_length must be greater than zero.
+*/
+extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_string_length, uint64 byte_count);
 
 /*
 nexus_strings_string_length gets the current length of a string.

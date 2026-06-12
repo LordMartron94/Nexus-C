@@ -10,18 +10,18 @@
 
 /* MergeSource f_mem_debug.c (quelsolaar/MergeSource), adapted for Nexus. */
 
-#define N_MEMORY_MAGIC_NUMBER   0xCF
-#define N_MEMORY_INITIALIZATION 0xCD
-#define N_MEMORY_FREED          0xCE
+#define N_MEMORY_MAGIC_NUMBER        0xCF
+#define N_MEMORY_INITIALIZATION      0xCD
+#define N_MEMORY_FREED               0xCE
 #define N_MEM_OFFSET_INVALID         ((size_t)-1)
 #define NEXUS_MEMORY_LOG_MESSAGE_MAX 512
 
-static NexusDebugMemLogCallback *n_mem_log_callback      = NULL;
-static void                     *n_mem_log_user_data     = NULL;
-static boolean                   nexus_memory_log_emitting = FALSE;
-static boolean                   nexus_memory_active       = TRUE;
-static unsigned char *nexus_memory_stack_pointer = NULL;
-static size_t         nexus_memory_stack_size    = 0;
+static NexusDebugMemLogCallback *n_mem_log_callback         = NULL;
+static void                     *n_mem_log_user_data        = NULL;
+static boolean                   nexus_memory_log_emitting  = FALSE;
+static boolean                   nexus_memory_active        = TRUE;
+static unsigned char            *nexus_memory_stack_pointer = NULL;
+static size_t                    nexus_memory_stack_size    = 0;
 
 typedef struct {
   size_t  size;
@@ -64,6 +64,60 @@ static unsigned int     n_freed_memory_store = 1024;
 static void *n_alloc_mutex                      = NULL;
 static int (*n_alloc_mutex_lock)(void *mutex)   = NULL;
 static int (*n_alloc_mutex_unlock)(void *mutex) = NULL;
+
+static size_t n_mem_stats_live_bytes            = 0;
+static size_t n_mem_stats_peak_live_bytes       = 0;
+static uint32 n_mem_stats_live_block_count      = 0;
+static uint32 n_mem_stats_peak_live_block_count = 0;
+static uint64 n_mem_stats_total_bytes_allocated = 0;
+static uint64 n_mem_stats_total_bytes_freed     = 0;
+static uint64 n_mem_stats_allocation_count      = 0;
+static uint64 n_mem_stats_free_count            = 0;
+static size_t n_mem_stats_largest_allocation    = 0;
+
+static void nexus_debug_mem_stats_on_alloc(size_t size);
+static void nexus_debug_mem_stats_on_free(size_t size);
+static void nexus_debug_mem_stats_reset(void);
+
+static void nexus_debug_mem_stats_on_alloc(size_t size) {
+  if (!nexus_memory_active)
+    return;
+  n_mem_stats_total_bytes_allocated += (uint64)size;
+  n_mem_stats_allocation_count++;
+  n_mem_stats_live_bytes += size;
+  n_mem_stats_live_block_count++;
+  if (size > n_mem_stats_largest_allocation)
+    n_mem_stats_largest_allocation = size;
+  if (n_mem_stats_live_bytes > n_mem_stats_peak_live_bytes)
+    n_mem_stats_peak_live_bytes = n_mem_stats_live_bytes;
+  if (n_mem_stats_live_block_count > n_mem_stats_peak_live_block_count)
+    n_mem_stats_peak_live_block_count = n_mem_stats_live_block_count;
+}
+
+static void nexus_debug_mem_stats_on_free(size_t size) {
+  if (!nexus_memory_active)
+    return;
+  n_mem_stats_total_bytes_freed += (uint64)size;
+  n_mem_stats_free_count++;
+  if (n_mem_stats_live_bytes >= size)
+    n_mem_stats_live_bytes -= size;
+  else
+    n_mem_stats_live_bytes = 0;
+  if (n_mem_stats_live_block_count > 0)
+    n_mem_stats_live_block_count--;
+}
+
+static void nexus_debug_mem_stats_reset(void) {
+  n_mem_stats_live_bytes            = 0;
+  n_mem_stats_peak_live_bytes       = 0;
+  n_mem_stats_live_block_count      = 0;
+  n_mem_stats_peak_live_block_count = 0;
+  n_mem_stats_total_bytes_allocated = 0;
+  n_mem_stats_total_bytes_freed     = 0;
+  n_mem_stats_allocation_count      = 0;
+  n_mem_stats_free_count            = 0;
+  n_mem_stats_largest_allocation    = 0;
+}
 
 static void    nexus_debug_mem_add(void *pointer, size_t size, char *file, unsigned int line);
 static boolean nexus_debug_mem_remove(unsigned char *buf, char *file, unsigned int line, boolean was_realloc, size_t *out_size);
@@ -126,7 +180,9 @@ void nexus_debug_mem_reset(void) {
   for (i = 0; i < n_alloc_line_count; i++) {
     n_alloc_lines[i].allocated = 0;
     n_alloc_lines[i].size      = 0;
+    n_alloc_lines[i].freed     = 0;
   }
+  nexus_debug_mem_stats_reset();
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
 }
@@ -241,6 +297,7 @@ static void nexus_debug_mem_add(void *pointer, size_t size, char *file, unsigned
     if (nexus_memory_active) {
       n_alloc_lines[i].size += size;
       n_alloc_lines[i].allocated++;
+      nexus_debug_mem_stats_on_alloc(size);
     }
   } else {
     if (i % 1024 == 0) {
@@ -266,6 +323,7 @@ static void nexus_debug_mem_add(void *pointer, size_t size, char *file, unsigned
     if (nexus_memory_active) {
       n_alloc_lines[i].allocated = 1;
       n_alloc_lines[i].size      = size;
+      nexus_debug_mem_stats_on_alloc(size);
     } else {
       n_alloc_lines[i].allocated = 0;
       n_alloc_lines[i].size      = 0;
@@ -424,8 +482,10 @@ static boolean nexus_debug_mem_remove(unsigned char *buf, char *file, unsigned i
         *out_size               = n_alloc_lines[i].allocs[j].size;
         n_alloc_lines[i].size -= n_alloc_lines[i].allocs[j].size;
         n_alloc_lines[i].allocs[j] = n_alloc_lines[i].allocs[--n_alloc_lines[i].alloc_count];
-        if (nexus_memory_active)
+        if (nexus_memory_active) {
           n_alloc_lines[i].freed++;
+          nexus_debug_mem_stats_on_free(*out_size);
+        }
 
 #ifndef NEXUS_MEMORY_USE_AFTER_FREE_CHECK
         free(buf);
@@ -487,8 +547,8 @@ static boolean nexus_debug_mem_remove(unsigned char *buf, char *file, unsigned i
 }
 
 void nexus_debug_mem_free(void *buf, char *file, unsigned int line) {
-  size_t    size = 0;
-  boolean   removed;
+  size_t  size = 0;
+  boolean removed;
 
 #ifdef NEXUS_MEMORY_CHECK_ALWAYS
   nexus_debug_mem_check_bounds();
@@ -626,15 +686,61 @@ void *nexus_debug_mem_realloc(void *pointer, size_t size, char *file, unsigned i
   return pointer2;
 }
 
+void nexus_debug_mem_summary_get(NexusDebugMemSummary *summary) {
+  if (summary == NULL)
+    return;
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_lock(n_alloc_mutex);
+  summary->live_bytes               = n_mem_stats_live_bytes;
+  summary->peak_live_bytes          = n_mem_stats_peak_live_bytes;
+  summary->live_block_count         = n_mem_stats_live_block_count;
+  summary->peak_live_block_count    = n_mem_stats_peak_live_block_count;
+  summary->total_bytes_allocated    = n_mem_stats_total_bytes_allocated;
+  summary->total_bytes_freed        = n_mem_stats_total_bytes_freed;
+  summary->allocation_count         = n_mem_stats_allocation_count;
+  summary->free_count               = n_mem_stats_free_count;
+  summary->call_site_count          = n_alloc_line_count;
+  summary->largest_allocation_bytes = n_mem_stats_largest_allocation;
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_unlock(n_alloc_mutex);
+}
+
+static void nexus_debug_mem_summary_print_bytes(const char *label, uint64 byte_count) {
+  char formatted[64];
+
+  (void)nexus_strings_bytes_format(formatted, (uint64)(sizeof formatted), byte_count);
+  printf("%-28s%s\n", label, formatted);
+}
+
+void nexus_debug_mem_summary_print(void) {
+  NexusDebugMemSummary summary;
+
+  nexus_debug_mem_summary_get(&summary);
+  printf("Memory summary\n----------------------------------------------\n");
+  nexus_debug_mem_summary_print_bytes("Live bytes:", (uint64)summary.live_bytes);
+  nexus_debug_mem_summary_print_bytes("Peak live bytes:", (uint64)summary.peak_live_bytes);
+  printf("Live blocks:                %u\n", summary.live_block_count);
+  printf("Peak live blocks:           %u\n", summary.peak_live_block_count);
+  nexus_debug_mem_summary_print_bytes("Total bytes allocated:", summary.total_bytes_allocated);
+  nexus_debug_mem_summary_print_bytes("Total bytes freed:", summary.total_bytes_freed);
+  printf("Allocation events:          %llu\n", (unsigned long long)summary.allocation_count);
+  printf("Free events:                %llu\n", (unsigned long long)summary.free_count);
+  printf("Call sites tracked:         %u\n", summary.call_site_count);
+  nexus_debug_mem_summary_print_bytes("Largest single allocation:", (uint64)summary.largest_allocation_bytes);
+  printf("----------------------------------------------\n");
+}
+
 void nexus_debug_mem_print(unsigned int min_allocs) {
   unsigned int i;
   unsigned int j;
   unsigned int alloc_count;
+  char         consumption_label[64];
 
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_lock(n_alloc_mutex);
 
-  printf("Memory report: %u bytes\n----------------------------------------------\n", (unsigned int)nexus_debug_mem_consumption());
+  (void)nexus_strings_bytes_format(consumption_label, (uint64)(sizeof consumption_label), (uint64)nexus_debug_mem_consumption());
+  printf("Memory report: %s\n----------------------------------------------\n", consumption_label);
   for (i = 0; i < n_alloc_line_count; i++) {
     if (min_allocs < n_alloc_lines[i].allocated - n_alloc_lines[i].freed) {
       alloc_count = 0;
@@ -642,9 +748,11 @@ void nexus_debug_mem_print(unsigned int min_allocs) {
         if (n_alloc_lines[i].allocs[j].active)
           alloc_count++;
       if (alloc_count > 0) {
+        char site_bytes[64];
+
+        (void)nexus_strings_bytes_format(site_bytes, (uint64)(sizeof site_bytes), (uint64)n_alloc_lines[i].size);
         printf("%s line: %u\n", n_alloc_lines[i].file, n_alloc_lines[i].line);
-        printf(" - bytes allocated: %u\n - allocations: %u\n - frees: %u\n\n", (unsigned int)n_alloc_lines[i].size, alloc_count,
-               (unsigned int)n_alloc_lines[i].freed);
+        printf(" - bytes allocated: %s\n - allocations: %u\n - frees: %u\n\n", site_bytes, alloc_count, (unsigned int)n_alloc_lines[i].freed);
         for (j = 0; j < n_alloc_lines[i].alloc_count; j++)
           if (n_alloc_lines[i].allocs[j].comment != NULL)
             printf("\t\tcomment %p: %s\n", n_alloc_lines[i].allocs[j].buf, n_alloc_lines[i].allocs[j].comment);

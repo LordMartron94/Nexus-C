@@ -103,6 +103,35 @@ NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *strin
   return p_string_format_from_stb_truncated(stb_result, max_string_length);
 }
 
+#define NEXUS_STRINGS_BYTES_PER_KIB 1024ULL
+static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+
+NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_string_length, uint64 byte_count) {
+  uint32 unit_index;
+  real64 value;
+  uint32 whole;
+
+  if (!string || max_string_length == 0)
+    return p_string_format_result_failure();
+
+  if (byte_count < NEXUS_STRINGS_BYTES_PER_KIB)
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%llu B", (unsigned long long)byte_count);
+
+  value      = (real64)byte_count;
+  unit_index = 0;
+  while (value >= (real64)NEXUS_STRINGS_BYTES_PER_KIB && unit_index < 4) {
+    value /= (real64)NEXUS_STRINGS_BYTES_PER_KIB;
+    unit_index++;
+  }
+
+  whole = (uint32)value;
+  if ((real64)whole == value)
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%u %s", whole, units[unit_index]);
+  if (value >= (real64)10)
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.1f %s", value, units[unit_index]);
+  return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", value, units[unit_index]);
+}
+
 uint64 nexus_strings_string_length(const char *string) {
   const char *ptr = string;
   while (*ptr) {
