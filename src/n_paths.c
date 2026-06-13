@@ -16,7 +16,9 @@ NexusPath nexus_paths_path_create(const char *base_path) {
   NexusPath path;
   uint16    i = 0;
 
-  while (base_path && base_path[i] && i < NEXUS_MAX_PATH_LENGTH - 1) {
+  NEXUS_ASSERT_DEBUG(base_path != NULL);
+
+  while (base_path[i] && i < NEXUS_MAX_PATH_LENGTH - 1) {
     path.buffer[i] = base_path[i];
     i++;
   }
@@ -29,10 +31,11 @@ NexusPath nexus_paths_path_create(const char *base_path) {
 void nexus_paths_path_append(NexusPath *path, const char *element) {
   uint16 i = 0;
 
-  if (path->length == 0 || path->length >= NEXUS_MAX_PATH_LENGTH - 2)
-    return;
+  NEXUS_ASSERT_DEBUG(path != NULL);
+  NEXUS_ASSERT_DEBUG(element != NULL);
+  NEXUS_ASSERT_DEBUG(path->length < NEXUS_MAX_PATH_LENGTH - 2);
 
-  if (path->buffer[path->length - 1] != '/' && path->buffer[path->length - 1] != '\\') {
+  if (path->length > 0 && path->buffer[path->length - 1] != '/' && path->buffer[path->length - 1] != '\\') {
 #if defined(NEXUS_PLATFORM_WINDOWS)
     path->buffer[path->length] = '\\';
 #else
@@ -41,7 +44,7 @@ void nexus_paths_path_append(NexusPath *path, const char *element) {
     path->length++;
   }
 
-  while (element && element[i] && path->length < NEXUS_MAX_PATH_LENGTH - 1) {
+  while (element[i] && path->length < NEXUS_MAX_PATH_LENGTH - 1) {
     path->buffer[path->length] = element[i];
     path->length++;
     i++;
@@ -50,8 +53,13 @@ void nexus_paths_path_append(NexusPath *path, const char *element) {
 }
 
 const char *nexus_paths_path_base_name_get(const NexusPath *path) {
-  const char *base = path->buffer;
-  const char *ptr  = path->buffer;
+  const char *base;
+  const char *ptr;
+
+  NEXUS_ASSERT_DEBUG(path != NULL);
+
+  base = path->buffer;
+  ptr  = path->buffer;
 
   while (*ptr) {
     if (*ptr == '/' || *ptr == '\\') {
@@ -71,6 +79,8 @@ void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void
   NexusPath        search_path;
   NexusPath        current_path;
   boolean          is_dir;
+
+  NEXUS_ASSERT_DEBUG(callback != NULL);
 
   search_path = path;
   nexus_paths_path_append(&search_path, "*");
@@ -112,6 +122,8 @@ void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void
   struct dirent *entry;
   NexusPath      current_path;
   boolean        is_dir;
+
+  NEXUS_ASSERT_DEBUG(callback != NULL);
 
   dir = opendir(path.buffer);
   if (dir == NULL)

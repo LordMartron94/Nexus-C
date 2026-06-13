@@ -37,13 +37,13 @@ static NexusTime nexus_time_from_clock(int clock_id) {
   NexusTime current_time;
 
   if (clock_getres(clock_id, &clock_resolution) != 0) {
-    exit(NEXUS_ERROR_CODE_CLOCK_FAILURE);
+    NEXUS_ASSERT_MESSAGE(FALSE, "clock_getres failed");
   }
 
   precision_nanoseconds = ((uint64)clock_resolution.tv_sec * NEXUS_NANOSECONDS_PER_SECOND) + (uint64)clock_resolution.tv_nsec;
 
   if (clock_gettime(clock_id, &current_clock) != 0) {
-    exit(NEXUS_ERROR_CODE_CLOCK_FAILURE);
+    NEXUS_ASSERT_MESSAGE(FALSE, "clock_gettime failed");
   }
 
   current_time_ns = ((uint64)current_clock.tv_sec * NEXUS_NANOSECONDS_PER_SECOND) + (uint64)current_clock.tv_nsec;
@@ -126,7 +126,7 @@ NexusTime nexus_time_get_monotonic(void) {
 
   if (n_cached_precision == NTP_COUNT) {
     if (!QueryPerformanceFrequency((LARGE_INTEGER *)&counts_per_second)) {
-      exit(NEXUS_ERROR_CODE_CLOCK_FAILURE);
+      NEXUS_ASSERT_MESSAGE(FALSE, "QueryPerformanceFrequency failed");
     }
     n_cached_counts_per_second = counts_per_second;
     n_cached_precision         = n_time_precision_from_counts_per_second(counts_per_second);
@@ -135,7 +135,7 @@ NexusTime nexus_time_get_monotonic(void) {
   current_time.precision = n_cached_precision;
 
   if (!QueryPerformanceCounter((LARGE_INTEGER *)&current_counts)) {
-    exit(NEXUS_ERROR_CODE_CLOCK_FAILURE);
+    NEXUS_ASSERT_MESSAGE(FALSE, "QueryPerformanceCounter failed");
   }
 
   /* Precise scaling: (counts * NS_PER_SEC) / freq */
@@ -239,12 +239,11 @@ NexusDuration nexus_time_duration_mul_f(NexusDuration duration, f_real scalar) {
 
 NexusDuration nexus_time_duration_div(NexusDuration duration, int64 scalar) {
   NexusDuration result;
-  if (scalar == 0) {
-    result.nanoseconds = 0;
-  } else {
-    result.nanoseconds = duration.nanoseconds / scalar;
-  }
-  result.precision = duration.precision;
+
+  NEXUS_ASSERT_DEBUG(scalar != 0);
+
+  result.nanoseconds = duration.nanoseconds / scalar;
+  result.precision   = duration.precision;
   return result;
 }
 

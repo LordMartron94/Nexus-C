@@ -101,18 +101,6 @@ typedef double f_real;
 typedef float f_real;
 #endif
 
-/* ERROR CODES */
-
-#ifndef NEXUS_ERROR_CODES
-#  define NEXUS_ERROR_CODES
-#  define NEXUS_ERROR_CODE_FLUSH_FAILURE               0x2
-#  define NEXUS_ERROR_CODE_USE_OF_UNINITIALIZED_OBJECT 0x3
-#  define NEXUS_ERROR_CODE_PRINT_FORMAT_FAILURE        0x4
-#  define NEXUS_ERROR_CODE_CLOCK_FAILURE               0x5
-#  define NEXUS_ERROR_CODE_ALLOCATION_FAILURE          0x6
-#  define NEXUS_ERROR_CODE_FILE_FAILURE                0x7
-#endif
-
 /* ---------------------------------------------------------------------------- */
 /* DEBUGGING                                                                    */
 /* ---------------------------------------------------------------------------- */
@@ -652,16 +640,30 @@ extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 m
 
 /*
 nexus_strings_string_length gets the current length of a string.
+
+string must not be NULL.
 */
 extern uint64 nexus_strings_string_length(const char *string);
 
-/* Checks if a string exactly starts with the provided prefix. */
+/*
+Checks if a string exactly starts with the provided prefix.
+
+string and prefix must not be NULL.
+*/
 extern boolean nexus_strings_string_starts_with(const char *string, const char *prefix);
 
-/* Performs a safe, bounded copy of a string. Guarantees null-termination. */
+/*
+Performs a safe, bounded copy of a string. Guarantees null-termination.
+
+dest, src must not be NULL and dest_max_len must be greater than zero.
+*/
 extern void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src);
 
-/* Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2. */
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
 extern int32 nexus_strings_string_compare(const char *str1, const char *str2);
 
 /* ---------------------------------------------------------------------------- */

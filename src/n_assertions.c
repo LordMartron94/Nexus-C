@@ -32,8 +32,8 @@ void nexus_assertions_failure_report(const char *expression, const char *message
   suffix     = "'\n";
 
   if (n_error_report == NULL) {
-    (void)printf("FATAL: cannot report assertion failure without error reporter\n\t- Triggered by: file: %s, line %d\n", file, line);
-    exit(-1);
+    (void)fprintf(stderr, "FATAL: cannot report assertion failure without error reporter\n\t- Triggered by: file: %s, line %u\n", file, line);
+    NEXUS_ASSERTIONS_DEBUG_TRAP();
   }
 
   expression_length = nexus_strings_string_length(expression);

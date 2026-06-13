@@ -54,6 +54,7 @@ NexusFileHandle *nexus_filesystem_file_open(NexusPath file_path, NexusFileMode m
     c_mode = "ab+";
     break;
   default:
+    NEXUS_ASSERT_MESSAGE_DEBUG(FALSE, "Invalid NexusFileMode");
     c_mode = "r";
     break;
   }
@@ -69,8 +70,8 @@ void nexus_filesystem_file_close(NexusFileHandle *file_handle) {
 }
 
 uint64 nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint64 length) {
-  if (!file_handle || !bytes)
-    return 0;
+  NEXUS_ASSERT_DEBUG(file_handle != NULL);
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
   return (uint64)fwrite(bytes, 1, (size_t)length, (FILE *)file_handle);
 }
 

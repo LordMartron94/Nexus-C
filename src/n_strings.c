@@ -13,25 +13,16 @@ static NexusStringFormatResult p_string_format_result_create(uint64 written_leng
   return result;
 }
 
-static NexusStringFormatResult p_string_format_result_failure(void) {
-  return p_string_format_result_create(0, 0, FALSE, FALSE);
-}
-
-static uint8 p_string_format_max_length_valid(uint64 max_string_length, int32 *out_count) {
-  if (max_string_length == 0 || max_string_length > (uint64)2147483647) {
-    return FALSE;
-  }
-
-  *out_count = (int32)max_string_length;
-  return TRUE;
+static int32 p_string_format_max_length_as_count(uint64 max_string_length) {
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+  NEXUS_ASSERT_DEBUG(max_string_length <= (uint64)2147483647);
+  return (int32)max_string_length;
 }
 
 static NexusStringFormatResult p_string_format_from_stb_truncated(int stb_result, uint64 max_string_length) {
   uint64 required_length;
 
-  if (stb_result < 0) {
-    return p_string_format_result_failure();
-  }
+  NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
   required_length = (uint64)stb_result;
 
@@ -69,14 +60,12 @@ NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_st
   int    stb_result;
   uint64 required_length;
 
-  if (!string || !format || !p_string_format_max_length_valid(max_string_length, &count)) {
-    return p_string_format_result_failure();
-  }
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(format != NULL);
+  count = p_string_format_max_length_as_count(max_string_length);
 
   stb_result = stbsp_vsnprintf(NULL, 0, format, args);
-  if (stb_result < 0) {
-    return p_string_format_result_failure();
-  }
+  NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
   required_length = (uint64)stb_result;
   if (required_length >= max_string_length) {
@@ -84,9 +73,7 @@ NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_st
   }
 
   stb_result = stbsp_vsnprintf(string, count, format, args);
-  if (stb_result < 0) {
-    return p_string_format_result_failure();
-  }
+  NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
   return p_string_format_result_create(required_length, required_length, FALSE, TRUE);
 }
@@ -95,9 +82,9 @@ NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *strin
   int32 count;
   int   stb_result;
 
-  if (!string || !format || !p_string_format_max_length_valid(max_string_length, &count)) {
-    return p_string_format_result_failure();
-  }
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(format != NULL);
+  count = p_string_format_max_length_as_count(max_string_length);
 
   stb_result = stbsp_vsnprintf(string, count, format, args);
   return p_string_format_from_stb_truncated(stb_result, max_string_length);
@@ -111,8 +98,8 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_stri
   real64 value;
   uint32 whole;
 
-  if (!string || max_string_length == 0)
-    return p_string_format_result_failure();
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
 
   if (byte_count < NEXUS_STRINGS_BYTES_PER_KIB)
     return nexus_strings_string_format_with_truncation(string, max_string_length, "%llu B", (unsigned long long)byte_count);
@@ -133,7 +120,10 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_stri
 }
 
 uint64 nexus_strings_string_length(const char *string) {
-  const char *ptr = string;
+  const char *ptr;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  ptr = string;
   while (*ptr) {
     ptr++;
   }
@@ -141,8 +131,8 @@ uint64 nexus_strings_string_length(const char *string) {
 }
 
 boolean nexus_strings_string_starts_with(const char *string, const char *prefix) {
-  if (!string || !prefix)
-    return FALSE;
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(prefix != NULL);
   while (*prefix) {
     if (*string != *prefix)
       return FALSE;
@@ -154,12 +144,11 @@ boolean nexus_strings_string_starts_with(const char *string, const char *prefix)
 
 void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src) {
   uint64 i = 0;
-  if (!dest || dest_max_len == 0)
-    return;
-  if (!src) {
-    dest[0] = '\0';
-    return;
-  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(dest_max_len > 0);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
   while (src[i] && i < (dest_max_len - 1)) {
     dest[i] = src[i];
     i++;
@@ -168,8 +157,8 @@ void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src)
 }
 
 int32 nexus_strings_string_compare(const char *str1, const char *str2) {
-  if (!str1 || !str2)
-    return 0;
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
   while (*str1 && (*str1 == *str2)) {
     str1++;
     str2++;
