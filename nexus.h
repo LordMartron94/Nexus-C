@@ -1,5 +1,16 @@
 #pragma once
 
+/*
+
+NOTE: there are some defines here that error on compilation without support.
+
+I will resolve this into proper dependable and portable code when I have more experience with C.
+
+Written on:   15 June 2026
+Resolved on:  N/A
+
+*/
+
 #include <stdarg.h>
 
 /* ---------------------------------------------------------------------------- */
@@ -90,19 +101,62 @@ typedef uint64 timestamp;
 
 /* PRECISIONS */
 
-#define NEXUS_DOUBLE_PRECISION /* if NEXUS_DOUBLE_PRECISION is defined the type "f_real" is defined as double otherwise it will be defined as        \
-                               float. This is very useful if you want to write an application that can be compiled to use either 32 or 64 bit        \
-                               floating point math.                                                                                                  \
-                               */
+#ifndef NEXUS_DOUBLE_PRECISION
+#  define NEXUS_DOUBLE_PRECISION                                                                                                                     \
+    1 /* if NEXUS_DOUBLE_PRECISION is turned on, the type "f_real" is defined as double otherwise it will be defined as                              \
+    float. This is very useful if you want to write an application that can be compiled to use either 32 or 64 bit                                   \
+    floating point math.                                                                                                                             \
+    */
+#endif
 
-#ifdef NEXUS_DOUBLE_PRECISION
+#if NEXUS_DOUBLE_PRECISION
 typedef double f_real;
 #else
 typedef float f_real;
 #endif
 
+#include <limits.h>
+#include <float.h>
+
+#define INT8_MAX_VAL  SCHAR_MAX
+#define INT8_MIN_VAL  SCHAR_MIN
+#define UINT8_MAX_VAL UCHAR_MAX
+
+#define INT16_MAX_VAL  SHRT_MAX
+#define INT16_MIN_VAL  SHRT_MIN
+#define UINT16_MAX_VAL USHRT_MAX
+
+#define INT32_MAX_VAL  INT_MAX
+#define INT32_MIN_VAL  INT_MIN
+#define UINT32_MAX_VAL UINT_MAX
+
+/* 64-bit bounds handled via your compiler detection block */
+#if defined(_MSC_VER)
+#  define INT64_MAX_VAL  _I64_MAX
+#  define INT64_MIN_VAL  _I64_MIN
+#  define UINT64_MAX_VAL _UI64_MAX
+#elif defined(__GNUC__) || defined(__clang__) || defined(_LP64) || defined(__LP64__)
+#  define INT64_MAX_VAL  LLONG_MAX
+#  define INT64_MIN_VAL  LLONG_MIN
+#  define UINT64_MAX_VAL ULLONG_MAX
+#endif
+
+#define REAL32_MAX_VAL FLT_MAX
+#define REAL32_MIN_VAL FLT_MIN
+
+#define REAL64_MAX_VAL DBL_MAX
+#define REAL64_MIN_VAL DBL_MIN
+
+#if NEXUS_DOUBLE_PRECISION
+#  define F_REAL_MAX REAL64_MAX_VAL
+#  define F_REAL_MIN REAL64_MIN_VAL
+#else
+#  define F_REAL_MAX REAL32_MAX_VAL
+#  define F_REAL_MIN REAL32_MIN_VAL
+#endif
+
 /* ---------------------------------------------------------------------------- */
-/* DEBUGGING                                                                    */
+/* DEBUGGING AND MEMORY                                                         */
 /* ---------------------------------------------------------------------------- */
 
 /*
@@ -329,6 +383,15 @@ Used when NEXUS_EXIT_CRASH_ENABLED replaces exit() so debuggers break at a deter
 instead of a clean libc exit. status_code is currently unused but reserved for future use.
 */
 extern void exit_crash(uint32 status_code);
+
+#define NEXUS_SIZEOF(type) ((size_t)sizeof(type))
+
+#define NEXUS_ALIGNOF(type)                                                                                                                          \
+  ((size_t)&(((struct {                                                                                                                              \
+               char c;                                                                                                                               \
+               type t;                                                                                                                               \
+             } *)0)                                                                                                                                  \
+                 ->t))
 
 #if NEXUS_MEMORY_DEBUG_ENABLED
 
@@ -845,40 +908,40 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 
 #  define NEXUS_ASSERT(expr)                                                                                                                         \
     do {                                                                                                                                             \
-      if (expr) {                                                                                                                                      \
-      } else {                                                                                                                                         \
-        nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                                \
-        NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                                 \
-      }                                                                                                                                                \
+      if (expr) {                                                                                                                                    \
+      } else {                                                                                                                                       \
+        nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                              \
+        NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                               \
+      }                                                                                                                                              \
     } while (0)
 
-#  define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                          \
-    do {                                                                                                                                               \
-      if (expr) {                                                                                                                                      \
-      } else {                                                                                                                                         \
-        nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                             \
-        NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                                 \
-      }                                                                                                                                                \
+#  define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                        \
+    do {                                                                                                                                             \
+      if (expr) {                                                                                                                                    \
+      } else {                                                                                                                                       \
+        nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                         \
+        NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                               \
+      }                                                                                                                                              \
     } while (0)
 
 #  if NEXUS_DEBUG_ENABLED
 
-#    define NEXUS_ASSERT_DEBUG(expr)                                                                                                                   \
-      do {                                                                                                                                             \
-        if (expr) {                                                                                                                                    \
-        } else {                                                                                                                                       \
-          nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                              \
-          NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                               \
-        }                                                                                                                                              \
+#    define NEXUS_ASSERT_DEBUG(expr)                                                                                                                 \
+      do {                                                                                                                                           \
+        if (expr) {                                                                                                                                  \
+        } else {                                                                                                                                     \
+          nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                            \
+          NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                             \
+        }                                                                                                                                            \
       } while (0)
 
-#    define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                                  \
-      do {                                                                                                                                             \
-        if (expr) {                                                                                                                                    \
-        } else {                                                                                                                                       \
-          nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                         \
-          NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                               \
-        }                                                                                                                                              \
+#    define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                                \
+      do {                                                                                                                                           \
+        if (expr) {                                                                                                                                  \
+        } else {                                                                                                                                     \
+          nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                       \
+          NEXUS_ASSERTIONS_DEBUG_TRAP();                                                                                                             \
+        }                                                                                                                                            \
       } while (0)
 
 #  else
