@@ -729,6 +729,13 @@ str1 and str2 must not be NULL.
 */
 extern int32 nexus_strings_string_compare(const char *str1, const char *str2);
 
+/*
+Checks if two strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare`
+*/
+extern boolean nexus_strings_string_equals(const char *str1, const char *str2);
+
 /* ---------------------------------------------------------------------------- */
 /* PATHS                                                                        */
 /* ---------------------------------------------------------------------------- */

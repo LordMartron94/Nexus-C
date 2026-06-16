@@ -165,3 +165,7 @@ int32 nexus_strings_string_compare(const char *str1, const char *str2) {
   }
   return *(const unsigned char *)str1 - *(const unsigned char *)str2;
 }
+
+boolean nexus_strings_string_equals(const char *str1, const char *str2) {
+  return nexus_strings_string_compare(str1, str2) == 0;
+}
