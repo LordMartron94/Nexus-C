@@ -136,7 +136,8 @@ void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void
 
     current_path = path;
     nexus_paths_path_append(&current_path, entry->d_name);
-    is_dir = nexus_filesystem_path_is_dir(current_path);
+    is_dir = FALSE;
+    (void)nexus_filesystem_path_is_dir(current_path, &is_dir);
 
     if (files_only && is_dir) {
       /* Skip */

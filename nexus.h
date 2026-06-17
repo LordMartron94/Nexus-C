@@ -855,44 +855,50 @@ extern const char *nexus_paths_path_base_name_get(const NexusPath *path);
 /* ---------------------------------------------------------------------------- */
 
 /*
-NexusErrorCode carries a host errno value from the platform C library.
+NError is the universal 32-bit error format shared across all libraries.
 
-NEXUS_ERROR_NONE (0) means no error is currently recorded. Clients should not
-interpret raw codes; use nexus_errors_message_get or nexus_errors_message_write.
+The high 16 bits encode a two-character ASCII facility tag. The low 16 bits
+encode a facility-specific error code. NEXUS_ERROR_NONE (0) is success.
+
+Use nexus_errors_message_write to obtain a human-readable description of a
+NError value. Nexus only formats messages for its own 'N' 'X' facility errors.
 */
-typedef int32 NexusErrorCode;
+typedef uint32 NError;
 
-#define NEXUS_ERROR_NONE ((NexusErrorCode)0)
+#define NEXUS_ERROR_NONE ((NError)0)
 
 /*
-nexus_errors_occurred returns TRUE when a user error was recorded by the last Nexus call.
+NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NError.
 */
-extern boolean nexus_errors_occurred(void);
+#define NEXUS_ERROR_MAKE(c1, c2, code) (((((uint32)(c1)) << 24) | (((uint32)(c2)) << 16)) | ((uint16)(code)))
+
+#define NEXUS_ERROR_FACILITY_BYTE_1(err) ((char)(((err) >> 24) & 0xFF))
+#define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
+#define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
+
+#define NEXUS_ERROR_FILE_NOT_FOUND     NEXUS_ERROR_MAKE('N', 'X', 1)
+#define NEXUS_ERROR_PERMISSION_DENIED  NEXUS_ERROR_MAKE('N', 'X', 2)
+#define NEXUS_ERROR_ALREADY_EXISTS       NEXUS_ERROR_MAKE('N', 'X', 3)
+#define NEXUS_ERROR_DIR_NOT_EMPTY        NEXUS_ERROR_MAKE('N', 'X', 4)
+#define NEXUS_ERROR_DISK_FULL            NEXUS_ERROR_MAKE('N', 'X', 5)
+#define NEXUS_ERROR_INVALID_ARGUMENT     NEXUS_ERROR_MAKE('N', 'X', 6)
+#define NEXUS_ERROR_IO                   NEXUS_ERROR_MAKE('N', 'X', 7)
 
 /*
-nexus_errors_message_get returns a human-readable description of the last error.
+nexus_errors_message_write copies a human-readable description of error into buffer.
 
-Returns an empty string when no error occurred. The pointer is valid until the next
-error is recorded.
-*/
-extern const char *nexus_errors_message_get(void);
-
-/*
-nexus_errors_message_write copies the last error message into buffer.
-
-Writes an empty string when no error occurred. buffer must not be NULL and
+Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
 buffer_max_length must be greater than zero.
 */
-extern uint_large nexus_errors_message_write(char *buffer, uint_large buffer_max_length);
+extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length);
 
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
 /* ---------------------------------------------------------------------------- */
 
 /*
-All filesystem functions reset the recorded error at entry. On failure, use
-nexus_errors_occurred and nexus_errors_message_get (or nexus_errors_message_write)
-to handle the error without inspecting errno directly.
+Filesystem functions that can fail return NError. Output data is written only through
+explicit out-parameters and is valid only when NEXUS_ERROR_NONE is returned.
 */
 
 /*
@@ -920,82 +926,80 @@ typedef enum NexusFileMode {
 
 /*
 nexus_filesystem_directory_create creates a single directory.
-Returns TRUE on success or if it already exists. On failure, records an error.
+
+Returns NEXUS_ERROR_NONE on success or if the directory already exists.
 */
-extern boolean nexus_filesystem_directory_create(NexusPath directory_path);
+extern NError nexus_filesystem_directory_create(NexusPath directory_path);
 
 /*
 nexus_filesystem_path_is_dir checks whether a path is a directory.
-Returns FALSE when the path is not a directory. Records an error for non-ENOENT failures.
+
+Sets out_is_dir to FALSE when the path does not exist. Returns a non-zero NError for
+failures other than a missing path.
 */
-extern boolean nexus_filesystem_path_is_dir(NexusPath path);
+extern NError nexus_filesystem_path_is_dir(NexusPath path, boolean *out_is_dir);
 
 /*
 nexus_filesystem_path_exists checks if a path exists.
-Returns FALSE when the path does not exist. Records an error for non-ENOENT failures.
+
+Sets out_exists to FALSE when the path does not exist. Returns a non-zero NError for
+failures other than a missing path.
 */
-extern boolean nexus_filesystem_path_exists(NexusPath path);
+extern NError nexus_filesystem_path_exists(NexusPath path, boolean *out_exists);
 
 /*
 nexus_filesystem_file_delete deletes a file if it exists.
 
-If it does not exist, this is a no-op. Records an error for other failures.
+Returns NEXUS_ERROR_NONE when the file is deleted or was already absent.
 */
-extern void nexus_filesystem_file_delete(NexusPath file_path);
+extern NError nexus_filesystem_file_delete(NexusPath file_path);
 
 /*
 nexus_filesystem_directory_delete deletes a directory if it exists.
 
-If it does not exist, this is a no-op.
+When recursive is not set to true, this function fails when the directory is not empty.
 
-When recursive is not set to true, this function skips if the directory is not empty.
-
-Returns TRUE on success and FALSE on failure. Records an error on failure.
+Returns NEXUS_ERROR_NONE when the directory is deleted or was already absent.
 */
-extern boolean nexus_filesystem_directory_delete(NexusPath directory_path, boolean recursive);
+extern NError nexus_filesystem_directory_delete(NexusPath directory_path, boolean recursive);
 
 /*
 nexus_filesystem_file_open opens a connection to a given file_path.
 
-Returns NULL on failure and records an error.
+On success, writes the handle to out_file_handle and returns NEXUS_ERROR_NONE.
 */
-extern NexusFileHandle *nexus_filesystem_file_open(NexusPath file_path, NexusFileMode mode);
+extern NError nexus_filesystem_file_open(NexusPath file_path, NexusFileMode mode, NexusFileHandle **out_file_handle);
 
 /*
 nexus_filesystem_file_close closes a currently opened file-connection.
-
-Records an error when fclose fails.
 */
-extern void nexus_filesystem_file_close(NexusFileHandle *file_handle);
+extern NError nexus_filesystem_file_close(NexusFileHandle *file_handle);
 
 /*
 nexus_filesystem_file_rename renames/moves a file.
-
-Returns FALSE on failure and records an error.
 */
-extern boolean nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_path);
+extern NError nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_path);
 
 /*
-nexus_filesystem_file_write writes bytes to an opened file and returns the amount of bytes written.
+nexus_filesystem_file_write writes bytes to an opened file.
 
-Records an error when fewer than length bytes are written because of an I/O failure.
+Writes the number of bytes written to out_bytes_written. A short write without a
+stream error is not treated as failure.
 */
-extern uint_large nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint_large length);
+extern NError nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint_large length, uint_large *out_bytes_written);
 
 /*
 nexus_filesystem_file_flush flushes a file.
-
-Records an error when fflush fails.
 */
-extern void nexus_filesystem_file_flush(NexusFileHandle *file_handle);
+extern NError nexus_filesystem_file_flush(NexusFileHandle *file_handle);
 
 /*
 nexus_filesystem_file_read reads up to byte_length bytes from start_byte into buffer.
 
-Returns the number of bytes read. A short read at EOF is not an error. Returns 0 with
-an recorded error when seeking or reading fails.
+Writes the number of bytes read to out_bytes_read. A short read at EOF is not an error.
 */
-extern uint_large nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length);
+extern NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length,
+                                         uint_large *out_bytes_read);
 
 /* ---------------------------------------------------------------------------- */
 /* ASSERTIONS                                                                   */

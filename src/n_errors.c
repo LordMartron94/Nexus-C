@@ -1,70 +1,91 @@
 #include <errno.h>
-#include <string.h>
+#include <stdio.h>
 #include "../nexus.h"
 #include "./n_internal.h"
 
-static NexusErrorCode n_last_error_code = NEXUS_ERROR_NONE;
-
-void nexus_errors_record_code(NexusErrorCode code) {
-  n_last_error_code = code;
+static const char *n_internal_nexus_error_message_for_code(uint16 code) {
+  switch (code) {
+  case 1:
+    return "file not found";
+  case 2:
+    return "permission denied";
+  case 3:
+    return "already exists";
+  case 4:
+    return "directory not empty";
+  case 5:
+    return "disk full";
+  case 6:
+    return "invalid argument";
+  case 7:
+    return "I/O error";
+  default:
+    return "unknown Nexus error";
+  }
 }
 
-void nexus_errors_record_errno(void) {
-  nexus_errors_record_code((NexusErrorCode)errno);
+static boolean n_internal_error_is_nexus(NError error) {
+  return NEXUS_ERROR_FACILITY_BYTE_1(error) == 'N' && NEXUS_ERROR_FACILITY_BYTE_2(error) == 'X' ? TRUE : FALSE;
+}
+
+NError nexus_errors_from_errno(void) {
+  switch (errno) {
+  case ENOENT:
+    return NEXUS_ERROR_FILE_NOT_FOUND;
+  case EACCES:
+  case EPERM:
+    return NEXUS_ERROR_PERMISSION_DENIED;
+  case EEXIST:
+    return NEXUS_ERROR_ALREADY_EXISTS;
+  case ENOSPC:
+    return NEXUS_ERROR_DISK_FULL;
+  case ENOTEMPTY:
+    return NEXUS_ERROR_DIR_NOT_EMPTY;
+  case EINVAL:
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  default:
+    return NEXUS_ERROR_IO;
+  }
 }
 
 #if NEXUS_PLATFORM_WINDOWS
-void nexus_errors_record_windows_error(unsigned long win32_error) {
-  int32 code;
-
+NError nexus_errors_from_windows_error(unsigned long win32_error) {
   switch (win32_error) {
   case ERROR_FILE_NOT_FOUND:
   case ERROR_PATH_NOT_FOUND:
-    code = ENOENT;
-    break;
+    return NEXUS_ERROR_FILE_NOT_FOUND;
   case ERROR_ACCESS_DENIED:
-    code = EACCES;
-    break;
+    return NEXUS_ERROR_PERMISSION_DENIED;
   case ERROR_ALREADY_EXISTS:
-    code = EEXIST;
-    break;
+    return NEXUS_ERROR_ALREADY_EXISTS;
   case ERROR_DISK_FULL:
-    code = ENOSPC;
-    break;
+    return NEXUS_ERROR_DISK_FULL;
   case ERROR_DIR_NOT_EMPTY:
-    code = ENOTEMPTY;
-    break;
+    return NEXUS_ERROR_DIR_NOT_EMPTY;
   default:
-    code = EIO;
-    break;
+    return NEXUS_ERROR_IO;
   }
-
-  nexus_errors_record_code(code);
 }
 #endif
 
-void nexus_errors_clear(void) {
-  n_last_error_code = NEXUS_ERROR_NONE;
-}
-
-boolean nexus_errors_occurred(void) {
-  return n_last_error_code != NEXUS_ERROR_NONE ? TRUE : FALSE;
-}
-
-const char *nexus_errors_message_get(void) {
-  if (n_last_error_code == NEXUS_ERROR_NONE)
-    return "";
-
-  return strerror(n_last_error_code);
-}
-
-uint_large nexus_errors_message_write(char *buffer, uint_large buffer_max_length) {
+uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length) {
   const char *message;
 
   NEXUS_ASSERT_DEBUG(buffer != NULL);
   NEXUS_ASSERT_DEBUG(buffer_max_length > 0);
 
-  message = nexus_errors_message_get();
-  nexus_strings_string_copy(buffer, buffer_max_length, message);
+  if (error == NEXUS_ERROR_NONE) {
+    buffer[0] = '\0';
+    return 0;
+  }
+
+  if (n_internal_error_is_nexus(error)) {
+    message = n_internal_nexus_error_message_for_code(NEXUS_ERROR_CODE(error));
+    nexus_strings_string_copy(buffer, buffer_max_length, message);
+    return nexus_strings_string_length(buffer);
+  }
+
+  nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "Error %c%c-%u", NEXUS_ERROR_FACILITY_BYTE_1(error),
+                                              NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)NEXUS_ERROR_CODE(error));
   return nexus_strings_string_length(buffer);
 }
