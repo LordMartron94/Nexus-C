@@ -851,8 +851,49 @@ extern void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callbac
 extern const char *nexus_paths_path_base_name_get(const NexusPath *path);
 
 /* ---------------------------------------------------------------------------- */
+/* ERRORS                                                                       */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusErrorCode carries a host errno value from the platform C library.
+
+NEXUS_ERROR_NONE (0) means no error is currently recorded. Clients should not
+interpret raw codes; use nexus_errors_message_get or nexus_errors_message_write.
+*/
+typedef int32 NexusErrorCode;
+
+#define NEXUS_ERROR_NONE ((NexusErrorCode)0)
+
+/*
+nexus_errors_occurred returns TRUE when a user error was recorded by the last Nexus call.
+*/
+extern boolean nexus_errors_occurred(void);
+
+/*
+nexus_errors_message_get returns a human-readable description of the last error.
+
+Returns an empty string when no error occurred. The pointer is valid until the next
+error is recorded.
+*/
+extern const char *nexus_errors_message_get(void);
+
+/*
+nexus_errors_message_write copies the last error message into buffer.
+
+Writes an empty string when no error occurred. buffer must not be NULL and
+buffer_max_length must be greater than zero.
+*/
+extern uint_large nexus_errors_message_write(char *buffer, uint_large buffer_max_length);
+
+/* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
 /* ---------------------------------------------------------------------------- */
+
+/*
+All filesystem functions reset the recorded error at entry. On failure, use
+nexus_errors_occurred and nexus_errors_message_get (or nexus_errors_message_write)
+to handle the error without inspecting errno directly.
+*/
 
 /*
 NexusFileHandle is a handle to a file connection.
@@ -879,24 +920,26 @@ typedef enum NexusFileMode {
 
 /*
 nexus_filesystem_directory_create creates a single directory.
-Returns true on success or if it already exists.
+Returns TRUE on success or if it already exists. On failure, records an error.
 */
 extern boolean nexus_filesystem_directory_create(NexusPath directory_path);
 
 /*
 nexus_filesystem_path_is_dir checks whether a path is a directory.
+Returns FALSE when the path is not a directory. Records an error for non-ENOENT failures.
 */
 extern boolean nexus_filesystem_path_is_dir(NexusPath path);
 
 /*
 nexus_filesystem_path_exists checks if a path exists.
+Returns FALSE when the path does not exist. Records an error for non-ENOENT failures.
 */
 extern boolean nexus_filesystem_path_exists(NexusPath path);
 
 /*
 nexus_filesystem_file_delete deletes a file if it exists.
 
-If it does not exist, this is a no-op.
+If it does not exist, this is a no-op. Records an error for other failures.
 */
 extern void nexus_filesystem_file_delete(NexusPath file_path);
 
@@ -907,34 +950,52 @@ If it does not exist, this is a no-op.
 
 When recursive is not set to true, this function skips if the directory is not empty.
 
-Returns true on success and false on failure.
+Returns TRUE on success and FALSE on failure. Records an error on failure.
 */
 extern boolean nexus_filesystem_directory_delete(NexusPath directory_path, boolean recursive);
 
 /*
 nexus_filesystem_file_open opens a connection to a given file_path.
+
+Returns NULL on failure and records an error.
 */
 extern NexusFileHandle *nexus_filesystem_file_open(NexusPath file_path, NexusFileMode mode);
 
 /*
 nexus_filesystem_file_close closes a currently opened file-connection.
+
+Records an error when fclose fails.
 */
 extern void nexus_filesystem_file_close(NexusFileHandle *file_handle);
 
 /*
 nexus_filesystem_file_rename renames/moves a file.
+
+Returns FALSE on failure and records an error.
 */
 extern boolean nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_path);
 
 /*
 nexus_filesystem_file_write writes bytes to an opened file and returns the amount of bytes written.
+
+Records an error when fewer than length bytes are written because of an I/O failure.
 */
 extern uint_large nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint_large length);
 
 /*
 nexus_filesystem_file_flush flushes a file.
+
+Records an error when fflush fails.
 */
 extern void nexus_filesystem_file_flush(NexusFileHandle *file_handle);
+
+/*
+nexus_filesystem_file_read reads up to byte_length bytes from start_byte into buffer.
+
+Returns the number of bytes read. A short read at EOF is not an error. Returns 0 with
+an recorded error when seeking or reading fails.
+*/
+extern uint_large nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length);
 
 /* ---------------------------------------------------------------------------- */
 /* ASSERTIONS                                                                   */
