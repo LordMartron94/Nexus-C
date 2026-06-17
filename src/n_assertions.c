@@ -19,12 +19,12 @@ void nexus_assertions_failure_report(const char *expression, const char *message
   const char *suffix;
 
   char   out_message[NEXUS_ASSERTION_FAILURE_REPORT_MAX];
-  uint64 expression_length;
-  uint64 message_length;
-  uint64 fixed_length;
-  uint64 available_message_length;
-  uint64 i;
-  uint64 out_i;
+  uint_large expression_length;
+  uint_large message_length;
+  uint_large fixed_length;
+  uint_large available_message_length;
+  uint_large i;
+  uint_large out_i;
 
   prefix     = "Assertion Failure: ";
   middle     = ", message '";

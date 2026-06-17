@@ -10,9 +10,9 @@
 #  include <windows.h>
 #endif
 
-#if NEXUS_PLATFORM_LINUX || NEXUS_PLATFORM_MACOS
+#if (NEXUS_PLATFORM_LINUX) || (NEXUS_PLATFORM_MACOS)
 
-static NexusTimePrecision n_time_precision_from_nanoseconds(uint64 precision_nanoseconds) {
+static NexusTimePrecision n_time_precision_from_nanoseconds(timestamp precision_nanoseconds) {
   if (precision_nanoseconds <= 1) {
     return NTP_NANOSECOND;
   }
@@ -31,22 +31,22 @@ static NexusTimePrecision n_time_precision_from_nanoseconds(uint64 precision_nan
 static NexusTime nexus_time_from_clock(int clock_id) {
   struct timespec current_clock;
   struct timespec clock_resolution;
-  uint64          precision_nanoseconds;
+  timestamp       precision_nanoseconds;
 
-  uint64    current_time_ns;
+  timestamp current_time_ns;
   NexusTime current_time;
 
   if (clock_getres(clock_id, &clock_resolution) != 0) {
     NEXUS_ASSERT_MESSAGE(FALSE, "clock_getres failed");
   }
 
-  precision_nanoseconds = ((uint64)clock_resolution.tv_sec * NEXUS_NANOSECONDS_PER_SECOND) + (uint64)clock_resolution.tv_nsec;
+  precision_nanoseconds = ((uint64)clock_resolution.tv_sec * (uint64)NEXUS_NANOSECONDS_PER_SECOND) + (uint64)clock_resolution.tv_nsec;
 
   if (clock_gettime(clock_id, &current_clock) != 0) {
     NEXUS_ASSERT_MESSAGE(FALSE, "clock_gettime failed");
   }
 
-  current_time_ns = ((uint64)current_clock.tv_sec * NEXUS_NANOSECONDS_PER_SECOND) + (uint64)current_clock.tv_nsec;
+  current_time_ns = ((uint64)current_clock.tv_sec * (uint64)NEXUS_NANOSECONDS_PER_SECOND) + (uint64)current_clock.tv_nsec;
 
   current_time.time      = current_time_ns;
   current_time.precision = n_time_precision_from_nanoseconds(precision_nanoseconds);
@@ -65,9 +65,9 @@ NexusTime nexus_time_get_monotonic(void) {
 #elif NEXUS_PLATFORM_WINDOWS
 
 static NexusTimePrecision n_cached_precision         = NTP_COUNT;
-static uint64             n_cached_counts_per_second = 0;
+static uint_large           n_cached_counts_per_second = 0;
 
-static NexusTimePrecision n_time_precision_from_counts_per_second(uint64 counts_per_second) {
+static NexusTimePrecision n_time_precision_from_counts_per_second(uint_large counts_per_second) {
   if (counts_per_second == 0) {
     return NTP_SECOND;
   }
@@ -83,12 +83,13 @@ static NexusTimePrecision n_time_precision_from_counts_per_second(uint64 counts_
   return NTP_SECOND;
 }
 
-static uint64 n_filetime_to_unix_ns(const FILETIME *ft) {
-  uint64 ft_100ns = ((uint64)ft->dwHighDateTime << 32) | ft->dwLowDateTime;
+static timestamp n_filetime_to_unix_ns(const FILETIME *ft) {
+  uint64 ft_100ns;
+  uint64 epoch_offset;
 
-  /* 116444736000000000 = ticks from 1601-01-01 to 1970-01-01 */
-  const uint64 epoch_offset = 116444736000000000ULL;
-  return (ft_100ns - epoch_offset) * 100ULL;
+  ft_100ns     = ((uint64)ft->dwHighDateTime << 32) | (uint64)ft->dwLowDateTime;
+  epoch_offset = (uint64)116444736000000000ULL; /* ticks from 1601-01-01 to 1970-01-01 */
+  return (timestamp)((ft_100ns - epoch_offset) * (uint64)100ULL);
 }
 
 typedef void(WINAPI *pfnGetSystemTimePreciseAsFileTime)(LPFILETIME);
@@ -121,8 +122,8 @@ NexusTime nexus_time_get_real(void) {
 
 NexusTime nexus_time_get_monotonic(void) {
   NexusTime current_time = {0};
-  uint64    counts_per_second;
-  uint64    current_counts;
+  uint_large counts_per_second;
+  uint_large current_counts;
 
   if (n_cached_precision == NTP_COUNT) {
     if (!QueryPerformanceFrequency((LARGE_INTEGER *)&counts_per_second)) {
@@ -139,7 +140,8 @@ NexusTime nexus_time_get_monotonic(void) {
   }
 
   /* Precise scaling: (counts * NS_PER_SEC) / freq */
-  current_time.time = (current_counts * NEXUS_NANOSECONDS_PER_SECOND) / n_cached_counts_per_second;
+  current_time.time =
+      (timestamp)(((uint64)current_counts * (uint64)NEXUS_NANOSECONDS_PER_SECOND) / (uint64)n_cached_counts_per_second);
 
   return current_time;
 }
@@ -178,18 +180,18 @@ NexusDuration nexus_time_duration_from_seconds(int64 seconds) {
 
 NexusTime nexus_time_add_duration(NexusTime time, NexusDuration duration) {
   NexusTime result;
-  uint64    base_time;
-  uint64    offset;
-  uint64    new_time;
+  timestamp base_time;
+  timestamp offset;
+  timestamp new_time;
 
   result.precision = (time.precision < duration.precision) ? time.precision : duration.precision;
 
   base_time = time.time;
-  offset    = (uint64)duration.nanoseconds;
+  offset    = (timestamp)duration.nanoseconds;
   new_time  = base_time + offset;
 
   if (duration.nanoseconds > 0 && new_time < base_time) {
-    result.time = ~((uint64)0); /* max uint64 */
+    result.time = TIMESTAMP_MAX_VAL;
   } else if (duration.nanoseconds < 0 && new_time > base_time) {
     result.time = 0;
   } else {
@@ -249,7 +251,7 @@ NexusDuration nexus_time_duration_div(NexusDuration duration, int64 scalar) {
 
 NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time) {
   NexusDateTime date_time;
-  uint64        seconds;
+  timestamp     seconds;
   uint32        nanoseconds;
   time_t        timer_seconds;
   struct tm     tm_info;
@@ -273,9 +275,10 @@ NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time) {
   nanoseconds          = (uint32)(utc_time.time % NEXUS_NANOSECONDS_PER_SECOND);
   date_time.nanosecond = nanoseconds;
 
-  if (seconds == 0) {
-  } else if (seconds > 0xFFFFFFFFFFFFULL) {
-    return date_time;
+  if (seconds != 0) {
+    if (seconds > (timestamp)0xFFFFFFFFFFFFULL) {
+      return date_time;
+    }
   }
 
 #if NEXUS_PLATFORM_WINDOWS

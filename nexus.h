@@ -7,7 +7,7 @@ NOTE: there are some defines here that error on compilation without support.
 I will resolve this into proper dependable and portable code when I have more experience with C.
 
 Written on:   15 June 2026
-Resolved on:  N/A
+Resolved on:  17 June 2026
 
 */
 
@@ -26,16 +26,16 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #ifndef NEXUS_PLATFORMS
 #  define NEXUS_PLATFORMS
 
-#  if defined(_WIN32)
+#  if defined(_WIN32) || defined(_WIN64)
 #    define NEXUS_PLATFORM_WINDOWS 1
 #  elif defined(__APPLE__) && defined(__MACH__)
 #    define NEXUS_PLATFORM_MACOS 1
 #  elif defined(__linux__)
 #    define NEXUS_PLATFORM_LINUX 1
 #  else
-#    error "Unsupported platform"
+#    define NEXUS_PLATFORM_UNKNOWN 1
 #  endif
-#endif
+#endif /* PLATFORM DETECTION */
 
 #ifndef NULL
 #  ifdef __cplusplus
@@ -53,9 +53,7 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #  define FALSE 0
 #endif
 
-#if defined _WIN32
-typedef unsigned int uint;
-#else
+#if !defined(_WIN32)
 #  include <sys/types.h>
 #endif
 
@@ -74,48 +72,105 @@ typedef uint8 byte;
 
 typedef unsigned char boolean;
 
-/* 64 bit exceptions */
+#include <limits.h>
 
+/*
+Fixed-width 64-bit integers (compiler extensions; Dependable C).
+
+Semantics: values that are always exactly 64 bits wide, independent of CPU word size.
+Used for durations in nanoseconds, epoch arithmetic, and the uint64/int64 primitives.
+*/
 #if defined(_MSC_VER)
 typedef signed __int64   int64;
 typedef unsigned __int64 uint64;
-
 #elif defined(__GNUC__) || defined(__clang__)
 __extension__ typedef signed long long   int64;
 __extension__ typedef unsigned long long uint64;
-
 #elif defined(__LP64__) || defined(_LP64)
 typedef signed long   int64;
 typedef unsigned long uint64;
-
 #else
-#  error "Your compiler/platform does not support a native 64-bit integer type in C89 mode."
+__extension__ typedef signed long long   int64;
+__extension__ typedef unsigned long long uint64;
 #endif
 
 /*
-timestamp is a 64-bit data type to store time values.
+Architecture word width (pointer size).
 
-Semantics are determined by usage.
+Semantics: distinguishes 32-bit from 64-bit address spaces. Used when behavior must
+follow allocatable object size rather than fixed 64-bit width.
+
+Compile-time overrides (define before including this header):
+  NEXUS_FORCE_32_BIT  Simulate a 32-bit address space on a 64-bit host. uint_large and
+                      int_large become 32-bit; timestamp/int64/uint64 are unchanged.
+                      Useful to validate client code paths without a separate toolchain.
+
+NEXUS_ARCHITECTURE_BITS_NATIVE is the detected host width without overrides.
+NEXUS_ARCHITECTURE_BITS is the effective width used by Nexus (may be forced to 32).
+NEXUS_ARCHITECTURE_FORCED_32_BIT is TRUE when NEXUS_FORCE_32_BIT is active.
+*/
+#if defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || defined(__amd64__)
+#  define NEXUS_ARCHITECTURE_BITS_NATIVE 64
+#elif defined(_WIN32) || defined(__i386__) || defined(_M_IX86) || defined(__arm__) || defined(__ARMEL__) || defined(__ARMEB__)
+#  define NEXUS_ARCHITECTURE_BITS_NATIVE 32
+#else
+#  if defined(ULONG_MAX) && (ULONG_MAX > 4294967295UL)
+#    define NEXUS_ARCHITECTURE_BITS_NATIVE 64
+#  else
+#    define NEXUS_ARCHITECTURE_BITS_NATIVE 32
+#  endif
+#endif
+
+#ifdef NEXUS_FORCE_32_BIT
+#  define NEXUS_ARCHITECTURE_BITS          32
+#  define NEXUS_ARCHITECTURE_FORCED_32_BIT TRUE
+#else
+#  define NEXUS_ARCHITECTURE_BITS          NEXUS_ARCHITECTURE_BITS_NATIVE
+#  define NEXUS_ARCHITECTURE_FORCED_32_BIT FALSE
+#endif
+
+#define NEXUS_ARCHITECTURE_IS_32_BIT (NEXUS_ARCHITECTURE_BITS == 32)
+#define NEXUS_ARCHITECTURE_IS_64_BIT (NEXUS_ARCHITECTURE_BITS == 64)
+
+/*
+Native word-sized integers.
+
+Semantics: counts, lengths, indices, and buffer sizes that must fit any single
+allocatable object on this architecture. On 32-bit builds this is 32 bits even when
+the compiler also provides fixed-width 64-bit types.
+*/
+#if NEXUS_ARCHITECTURE_BITS == 64
+typedef int64  int_large;
+typedef uint64 uint_large;
+#else
+typedef int32  int_large;
+typedef uint32 uint_large;
+#endif
+
+/*
+timestamp stores absolute time values as unsigned nanoseconds since an epoch.
+
+Uses uint64 on all supported targets so epoch math is full-range on both 32-bit and
+64-bit CPUs. uint_large is not used here because address width does not limit time span.
 */
 typedef uint64 timestamp;
 
 /* PRECISIONS */
 
-#ifndef NEXUS_DOUBLE_PRECISION
-#  define NEXUS_DOUBLE_PRECISION                                                                                                                     \
-    1 /* if NEXUS_DOUBLE_PRECISION is turned on, the type "f_real" is defined as double otherwise it will be defined as                              \
+#ifndef NEXUS_FLOAT_DOUBLE_PRECISION
+#  define NEXUS_FLOAT_DOUBLE_PRECISION                                                                                                               \
+    TRUE /* if NEXUS_FLOAT_DOUBLE_PRECISION is turned on, the type "f_real" is defined as double otherwise it will be defined as                     \
     float. This is very useful if you want to write an application that can be compiled to use either 32 or 64 bit                                   \
     floating point math.                                                                                                                             \
     */
 #endif
 
-#if NEXUS_DOUBLE_PRECISION
+#if (NEXUS_FLOAT_DOUBLE_PRECISION)
 typedef double f_real;
 #else
 typedef float f_real;
 #endif
 
-#include <limits.h>
 #include <float.h>
 
 #define INT8_MAX_VAL  SCHAR_MAX
@@ -130,15 +185,31 @@ typedef float f_real;
 #define INT32_MIN_VAL  INT_MIN
 #define UINT32_MAX_VAL UINT_MAX
 
-/* 64-bit bounds handled via your compiler detection block */
+/* 64-bit bounds (available on all supported targets). */
 #if defined(_MSC_VER)
 #  define INT64_MAX_VAL  _I64_MAX
 #  define INT64_MIN_VAL  _I64_MIN
 #  define UINT64_MAX_VAL _UI64_MAX
-#elif defined(__GNUC__) || defined(__clang__) || defined(_LP64) || defined(__LP64__)
+#elif defined(__GNUC__) || defined(__clang__) || defined(__LP64__) || defined(_LP64)
 #  define INT64_MAX_VAL  LLONG_MAX
 #  define INT64_MIN_VAL  LLONG_MIN
 #  define UINT64_MAX_VAL ULLONG_MAX
+#else
+#  define INT64_MAX_VAL  ((int64)9223372036854775807LL)
+#  define INT64_MIN_VAL  ((int64)(-9223372036854775807LL - 1))
+#  define UINT64_MAX_VAL ((uint64)18446744073709551615ULL)
+#endif
+
+#define TIMESTAMP_MAX_VAL UINT64_MAX_VAL
+
+#if NEXUS_ARCHITECTURE_BITS == 64
+#  define UINT_LARGE_MAX_VAL UINT64_MAX_VAL
+#  define INT_LARGE_MAX_VAL  INT64_MAX_VAL
+#  define INT_LARGE_MIN_VAL  INT64_MIN_VAL
+#else
+#  define UINT_LARGE_MAX_VAL UINT32_MAX_VAL
+#  define INT_LARGE_MAX_VAL  INT32_MAX_VAL
+#  define INT_LARGE_MIN_VAL  INT32_MIN_VAL
 #endif
 
 #define REAL32_MAX_VAL FLT_MAX
@@ -293,16 +364,16 @@ NexusDebugMemSummary holds aggregate allocation statistics recorded by the memor
 Counters respect nexus_debug_mem_active and are cleared by nexus_debug_mem_reset.
 */
 typedef struct NexusDebugMemSummary {
-  size_t live_bytes;
-  size_t peak_live_bytes;
-  uint32 live_block_count;
-  uint32 peak_live_block_count;
-  uint64 total_bytes_allocated;
-  uint64 total_bytes_freed;
-  uint64 allocation_count;
-  uint64 free_count;
-  uint32 call_site_count;
-  size_t largest_allocation_bytes;
+  size_t     live_bytes;
+  size_t     peak_live_bytes;
+  uint32     live_block_count;
+  uint32     peak_live_block_count;
+  uint_large total_bytes_allocated;
+  uint_large total_bytes_freed;
+  uint_large allocation_count;
+  uint_large free_count;
+  uint32     call_site_count;
+  size_t     largest_allocation_bytes;
 } NexusDebugMemSummary;
 
 /*
@@ -649,10 +720,10 @@ truncated: TRUE when required_length exceeds what could fit within max_string_le
 success: TRUE when formatting completed according to the selected function variant.
 */
 typedef struct NexusStringFormatResult {
-  uint64 written_length;
-  uint64 required_length;
-  uint8  truncated;
-  uint8  success;
+  uint_large written_length;
+  uint_large required_length;
+  uint8      truncated;
+  uint8      success;
 } NexusStringFormatResult;
 
 /*
@@ -664,7 +735,7 @@ Otherwise, it returns success=TRUE with written_length equal to required_length.
 
 Performance: prefer `nexus_strings_string_format_with_truncation` because it does not do double work.
 */
-extern NexusStringFormatResult nexus_strings_string_format(char *string, uint64 max_string_length, const char *format, ...);
+extern NexusStringFormatResult nexus_strings_string_format(char *string, uint_large max_string_length, const char *format, ...);
 
 /*
 nexus_strings_string_format_with_truncation formats a string with a `max_string_length`
@@ -673,7 +744,7 @@ If the formatted string would be more than the `max_string_length`, this impleme
 null-terminates the destination buffer, and returns truncated=TRUE with success=TRUE.
 Otherwise, it returns success=TRUE with written_length equal to required_length.
 */
-extern NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...);
+extern NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string, uint_large max_string_length, const char *format, ...);
 
 /*
 nexus_strings_vstring_format formats a vstring with a `max_string_length`
@@ -684,7 +755,7 @@ Otherwise, it returns success=TRUE with written_length equal to required_length.
 
 Performance: prefer `nexus_strings_vstring_format_with_truncation` because it does not do double work.
 */
-extern NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_string_length, const char *format, va_list args);
+extern NexusStringFormatResult nexus_strings_vstring_format(char *string, uint_large max_string_length, const char *format, va_list args);
 
 /*
 nexus_strings_vstring_format_with_truncation formats a vstring with a `max_string_length`
@@ -693,20 +764,21 @@ If the formatted string would be more than the `max_string_length`, this impleme
 null-terminates the destination buffer, and returns truncated=TRUE with success=TRUE.
 Otherwise, it returns success=TRUE with written_length equal to required_length.
 */
-extern NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args);
+extern NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint_large max_string_length, const char *format,
+                                                                            va_list args);
 
 /*
 nexus_strings_bytes_format writes byte_count as a human-readable binary size (B, KiB, MiB, GiB, TiB).
 Uses IEC binary prefixes (1024). string must not be NULL and max_string_length must be greater than zero.
 */
-extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_string_length, uint64 byte_count);
+extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count);
 
 /*
 nexus_strings_string_length gets the current length of a string.
 
 string must not be NULL.
 */
-extern uint64 nexus_strings_string_length(const char *string);
+extern uint_large nexus_strings_string_length(const char *string);
 
 /*
 Checks if a string exactly starts with the provided prefix.
@@ -720,7 +792,7 @@ Performs a safe, bounded copy of a string. Guarantees null-termination.
 
 dest, src must not be NULL and dest_max_len must be greater than zero.
 */
-extern void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src);
+extern void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src);
 
 /*
 Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
@@ -857,7 +929,7 @@ extern boolean nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_pa
 /*
 nexus_filesystem_file_write writes bytes to an opened file and returns the amount of bytes written.
 */
-extern uint64 nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint64 length);
+extern uint_large nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint_large length);
 
 /*
 nexus_filesystem_file_flush flushes a file.
@@ -966,3 +1038,9 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 #  define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
 
 #endif /* NEXUS_ASSERTIONS_ENABLED */
+
+/* ---------------------------------------------------------------------------- */
+/* HASHING                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+typedef struct NexusHash NexusHash; /* Note, for now this is a stub, later it will be a hash. */

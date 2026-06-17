@@ -2,7 +2,7 @@
 #include "../nexus.h"
 #include <stb/stb_sprintf.h>
 
-static NexusStringFormatResult p_string_format_result_create(uint64 written_length, uint64 required_length, uint8 truncated, uint8 success) {
+static NexusStringFormatResult p_string_format_result_create(uint_large written_length, uint_large required_length, uint8 truncated, uint8 success) {
   NexusStringFormatResult result;
 
   result.written_length  = written_length;
@@ -13,18 +13,18 @@ static NexusStringFormatResult p_string_format_result_create(uint64 written_leng
   return result;
 }
 
-static int32 p_string_format_max_length_as_count(uint64 max_string_length) {
+static int32 p_string_format_max_length_as_count(uint_large max_string_length) {
   NEXUS_ASSERT_DEBUG(max_string_length > 0);
-  NEXUS_ASSERT_DEBUG(max_string_length <= (uint64)2147483647);
+  NEXUS_ASSERT_DEBUG(max_string_length <= (uint_large)2147483647);
   return (int32)max_string_length;
 }
 
-static NexusStringFormatResult p_string_format_from_stb_truncated(int stb_result, uint64 max_string_length) {
-  uint64 required_length;
+static NexusStringFormatResult p_string_format_from_stb_truncated(int stb_result, uint_large max_string_length) {
+  uint_large required_length;
 
   NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
-  required_length = (uint64)stb_result;
+  required_length = (uint_large)stb_result;
 
   if (required_length >= max_string_length) {
     return p_string_format_result_create(max_string_length - 1, required_length, TRUE, TRUE);
@@ -33,7 +33,7 @@ static NexusStringFormatResult p_string_format_from_stb_truncated(int stb_result
   return p_string_format_result_create(required_length, required_length, FALSE, TRUE);
 }
 
-NexusStringFormatResult nexus_strings_string_format(char *string, uint64 max_string_length, const char *format, ...) {
+NexusStringFormatResult nexus_strings_string_format(char *string, uint_large max_string_length, const char *format, ...) {
   va_list                 args;
   NexusStringFormatResult result;
 
@@ -44,7 +44,7 @@ NexusStringFormatResult nexus_strings_string_format(char *string, uint64 max_str
   return result;
 }
 
-NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string, uint64 max_string_length, const char *format, ...) {
+NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string, uint_large max_string_length, const char *format, ...) {
   va_list                 args;
   NexusStringFormatResult result;
 
@@ -55,10 +55,10 @@ NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string
   return result;
 }
 
-NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_string_length, const char *format, va_list args) {
+NexusStringFormatResult nexus_strings_vstring_format(char *string, uint_large max_string_length, const char *format, va_list args) {
   int32  count;
   int    stb_result;
-  uint64 required_length;
+  uint_large required_length;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
   NEXUS_ASSERT_DEBUG(format != NULL);
@@ -67,7 +67,7 @@ NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_st
   stb_result = stbsp_vsnprintf(NULL, 0, format, args);
   NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
-  required_length = (uint64)stb_result;
+  required_length = (uint_large)stb_result;
   if (required_length >= max_string_length) {
     return p_string_format_result_create(0, required_length, TRUE, FALSE);
   }
@@ -78,7 +78,7 @@ NexusStringFormatResult nexus_strings_vstring_format(char *string, uint64 max_st
   return p_string_format_result_create(required_length, required_length, FALSE, TRUE);
 }
 
-NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint64 max_string_length, const char *format, va_list args) {
+NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint_large max_string_length, const char *format, va_list args) {
   int32 count;
   int   stb_result;
 
@@ -93,7 +93,7 @@ NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *strin
 #define NEXUS_STRINGS_BYTES_PER_KIB 1024ULL
 static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
 
-NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_string_length, uint64 byte_count) {
+NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count) {
   uint32 unit_index;
   real64 value;
   uint32 whole;
@@ -119,7 +119,7 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint64 max_stri
   return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", value, units[unit_index]);
 }
 
-uint64 nexus_strings_string_length(const char *string) {
+uint_large nexus_strings_string_length(const char *string) {
   const char *ptr;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
@@ -127,7 +127,7 @@ uint64 nexus_strings_string_length(const char *string) {
   while (*ptr) {
     ptr++;
   }
-  return (uint64)(ptr - string);
+  return (uint_large)(ptr - string);
 }
 
 boolean nexus_strings_string_starts_with(const char *string, const char *prefix) {
@@ -142,8 +142,8 @@ boolean nexus_strings_string_starts_with(const char *string, const char *prefix)
   return TRUE;
 }
 
-void nexus_strings_string_copy(char *dest, uint64 dest_max_len, const char *src) {
-  uint64 i = 0;
+void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src) {
+  uint_large i = 0;
 
   NEXUS_ASSERT_DEBUG(dest != NULL);
   NEXUS_ASSERT_DEBUG(dest_max_len > 0);
