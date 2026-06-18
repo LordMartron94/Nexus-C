@@ -28,14 +28,39 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 
 #  if defined(_WIN32) || defined(_WIN64)
 #    define NEXUS_PLATFORM_WINDOWS 1
+#  elif defined(__ANDROID__)
+#    define NEXUS_PLATFORM_ANDROID 1
 #  elif defined(__APPLE__) && defined(__MACH__)
-#    define NEXUS_PLATFORM_MACOS 1
+#    if defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) || defined(__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__)
+#      define NEXUS_PLATFORM_IOS 1
+#    else
+#      define NEXUS_PLATFORM_MACOS 1
+#    endif
+#  elif defined(__FreeBSD__)
+#    define NEXUS_PLATFORM_FREEBSD 1
+#    define NEXUS_PLATFORM_BSD 1
+#  elif defined(__NetBSD__)
+#    define NEXUS_PLATFORM_NETBSD 1
+#    define NEXUS_PLATFORM_BSD 1
+#  elif defined(__OpenBSD__)
+#    define NEXUS_PLATFORM_OPENBSD 1
+#    define NEXUS_PLATFORM_BSD 1
+#  elif defined(__DragonFly__)
+#    define NEXUS_PLATFORM_DRAGONFLY 1
+#    define NEXUS_PLATFORM_BSD 1
+#  elif defined(__bsdi__) || defined(__bsdi)
+#    define NEXUS_PLATFORM_BSDI 1
+#    define NEXUS_PLATFORM_BSD 1
 #  elif defined(__linux__)
 #    define NEXUS_PLATFORM_LINUX 1
+#  elif defined(__unix__) || defined(__unix)
+#    /* generic UNIX fallback; could be some other BSD or System V UNIX */
+#    define NEXUS_PLATFORM_UNIX 1
 #  else
 #    define NEXUS_PLATFORM_UNKNOWN 1
 #  endif
 #endif /* PLATFORM DETECTION */
+
 
 #ifndef NEXUS_ARCHITECTURES
 #  define NEXUS_ARCHITECTURES
@@ -44,7 +69,7 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 /* RISC-V macros: __riscv, __riscv32, __riscv64, __riscv_xlen (GCC/Clang); see
    https://groups.google.com/a/groups.riscv.org/g/sw-dev/c/r4cUgIhWLbY */
 
-#  define NEXUS_ARCH_UNKNOWN -1
+#  define NEXUS_ARCH_UNKNOWN (-1)
 
 /* --- X86 --- */
 #  define NEXUS_ARCH_X86_64 1
@@ -130,7 +155,7 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #    define NEXUS_ARCH NEXUS_ARCH_UNKNOWN
 #  endif
 
-#endif /* ARCHITECTURE DECTION*/
+#endif /* ARCHITECTURE DETECTION*/
 
 #ifndef NULL
 #  ifdef __cplusplus
