@@ -56,8 +56,8 @@ NexusStringFormatResult nexus_strings_string_format_with_truncation(char *string
 }
 
 NexusStringFormatResult nexus_strings_vstring_format(char *string, uint_large max_string_length, const char *format, va_list args) {
-  int32  count;
-  int    stb_result;
+  int32      count;
+  int        stb_result;
   uint_large required_length;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
@@ -166,6 +166,48 @@ int32 nexus_strings_string_compare(const char *str1, const char *str2) {
   return *(const unsigned char *)str1 - *(const unsigned char *)str2;
 }
 
+int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2) {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *str1 - *str2;
+}
+
+int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2) {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *(const unsigned char *)str2)) {
+    str1++;
+    str2++;
+  }
+  return *str1 - *(const unsigned char *)str2;
+}
+
+int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2) {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*(const unsigned char *)str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *(const unsigned char *)str1 - *str2;
+}
+
 boolean nexus_strings_string_equals(const char *str1, const char *str2) {
   return nexus_strings_string_compare(str1, str2) == 0;
+}
+
+boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2) {
+  return nexus_strings_string_compare_unsigned(str1, str2) == 0;
+}
+
+boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2) {
+  return nexus_strings_string_compare_mixed(str1, str2) == 0;
+}
+
+boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2) {
+  return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
 }

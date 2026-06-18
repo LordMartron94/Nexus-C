@@ -13,7 +13,7 @@ entity nexus {
 
     interface {
         CPPFLAGS = [ "-Ilibs" ]
-        LDFLAGS = [ "-lnexus", "-lstb" ]
+        LDFLAGS = [ "-lnexus" ]
     }
 
     deps = [ "//external/stb:stb" ]

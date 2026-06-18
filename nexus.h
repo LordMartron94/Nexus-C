@@ -37,6 +37,101 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #  endif
 #endif /* PLATFORM DETECTION */
 
+#ifndef NEXUS_ARCHITECTURES
+#  define NEXUS_ARCHITECTURES
+
+/* Adapted from: https://stackoverflow.com/a/66249936 */
+/* RISC-V macros: __riscv, __riscv32, __riscv64, __riscv_xlen (GCC/Clang); see
+   https://groups.google.com/a/groups.riscv.org/g/sw-dev/c/r4cUgIhWLbY */
+
+#  define NEXUS_ARCH_UNKNOWN -1
+
+/* --- X86 --- */
+#  define NEXUS_ARCH_X86_64 1
+#  define NEXUS_ARCH_X86_32 2
+
+/* --- ARM --- */
+#  define NEXUS_ARCH_ARM2   3
+#  define NEXUS_ARCH_ARM3   4
+#  define NEXUS_ARCH_ARM4T  5
+#  define NEXUS_ARCH_ARM5   6
+#  define NEXUS_ARCH_ARM6T2 7
+#  define NEXUS_ARCH_ARM7   8
+#  define NEXUS_ARCH_ARM7A  9
+#  define NEXUS_ARCH_ARM7R  10
+#  define NEXUS_ARCH_ARM7M  11
+#  define NEXUS_ARCH_ARM7S  12
+#  define NEXUS_ARCH_ARM64  13
+
+/* --- MISC --- */
+#  define NEXUS_ARCH_MIPS      14
+#  define NEXUS_ARCH_SUPERH    15
+#  define NEXUS_ARCH_POWERPC   16
+#  define NEXUS_ARCH_POWERPC64 17
+#  define NEXUS_ARCH_SPARC     18
+#  define NEXUS_ARCH_M68K      19
+
+/* --- RISC-V --- */
+#  define NEXUS_ARCH_RISCV32 20
+#  define NEXUS_ARCH_RISCV64 21
+
+#  if defined(__x86_64__) || defined(_M_X64)
+#    define NEXUS_ARCH NEXUS_ARCH_X86_64
+#  elif defined(i386) || defined(__i386__) || defined(__i386) || defined(_M_IX86)
+#    define NEXUS_ARCH NEXUS_ARCH_X86_32
+#  elif defined(__ARM_ARCH_2__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM2
+#  elif defined(__ARM_ARCH_3__) || defined(__ARM_ARCH_3M__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM3
+#  elif defined(__ARM_ARCH_4T__) || defined(__TARGET_ARM_4T)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM4T
+#  elif defined(__ARM_ARCH_5_) || defined(__ARM_ARCH_5E_)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM5
+#  elif defined(__ARM_ARCH_6T2_) || defined(__ARM_ARCH_6T2_)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM6T2
+#  elif defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM6
+#  elif defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM7
+#  elif defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM7A
+#  elif defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM7R
+#  elif defined(__ARM_ARCH_7M__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM7M
+#  elif defined(__ARM_ARCH_7S__)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM7S
+#  elif defined(__aarch64__) || defined(_M_ARM64)
+#    define NEXUS_ARCH NEXUS_ARCH_ARM64
+#  elif defined(mips) || defined(__mips__) || defined(__mips)
+#    define NEXUS_ARCH NEXUS_ARCH_MIPS
+#  elif defined(__sh__)
+#    define NEXUS_ARCH NEXUS_ARCH_SUPERH
+#  elif defined(__powerpc) || defined(__powerpc__) || defined(__powerpc64__) || defined(__POWERPC__) || defined(__ppc__) || defined(__PPC__) ||      \
+      defined(_ARCH_PPC)
+#    define NEXUS_ARCH NEXUS_ARCH_POWERPC
+#  elif defined(__PPC64__) || defined(__ppc64__) || defined(_ARCH_PPC64)
+#    define NEXUS_ARCH NEXUS_ARCH_POWERPC64
+#  elif defined(__sparc__) || defined(__sparc)
+#    define NEXUS_ARCH NEXUS_ARCH_SPARC
+#  elif defined(__m68k__)
+#    define NEXUS_ARCH NEXUS_ARCH_M68K
+#  elif defined(__riscv) || defined(__riscv__) || defined(_riscv)
+#    if defined(__riscv64) || (defined(__riscv_xlen) && __riscv_xlen == 64)
+#      define NEXUS_ARCH NEXUS_ARCH_RISCV64
+#    elif defined(__riscv32) || (defined(__riscv_xlen) && __riscv_xlen == 32)
+#      define NEXUS_ARCH NEXUS_ARCH_RISCV32
+#    elif defined(__LP64__) || defined(_LP64)
+#      define NEXUS_ARCH NEXUS_ARCH_RISCV64
+#    else
+#      define NEXUS_ARCH NEXUS_ARCH_RISCV32
+#    endif
+#  else
+#    define NEXUS_ARCH NEXUS_ARCH_UNKNOWN
+#  endif
+
+#endif /* ARCHITECTURE DECTION*/
+
 #ifndef NULL
 #  ifdef __cplusplus
 #    define NULL 0 /* Defines NULL in C++*/
@@ -109,9 +204,11 @@ NEXUS_ARCHITECTURE_BITS_NATIVE is the detected host width without overrides.
 NEXUS_ARCHITECTURE_BITS is the effective width used by Nexus (may be forced to 32).
 NEXUS_ARCHITECTURE_FORCED_32_BIT is TRUE when NEXUS_FORCE_32_BIT is active.
 */
-#if defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || defined(__amd64__)
+#if defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || defined(__amd64__) || \
+    defined(__riscv64) || (defined(__riscv_xlen) && __riscv_xlen == 64)
 #  define NEXUS_ARCHITECTURE_BITS_NATIVE 64
-#elif defined(_WIN32) || defined(__i386__) || defined(_M_IX86) || defined(__arm__) || defined(__ARMEL__) || defined(__ARMEB__)
+#elif defined(_WIN32) || defined(__i386__) || defined(_M_IX86) || defined(__arm__) || defined(__ARMEL__) || defined(__ARMEB__) || \
+      defined(__riscv32) || (defined(__riscv_xlen) && __riscv_xlen == 32)
 #  define NEXUS_ARCHITECTURE_BITS_NATIVE 32
 #else
 #  if defined(ULONG_MAX) && (ULONG_MAX > 4294967295UL)
@@ -121,7 +218,7 @@ NEXUS_ARCHITECTURE_FORCED_32_BIT is TRUE when NEXUS_FORCE_32_BIT is active.
 #  endif
 #endif
 
-#ifdef NEXUS_FORCE_32_BIT
+#if NEXUS_FORCE_32_BIT
 #  define NEXUS_ARCHITECTURE_BITS          32
 #  define NEXUS_ARCHITECTURE_FORCED_32_BIT TRUE
 #else
@@ -802,11 +899,53 @@ str1 and str2 must not be NULL.
 extern int32 nexus_strings_string_compare(const char *str1, const char *str2);
 
 /*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+extern int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2);
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+extern int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2);
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+extern int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2);
+
+/*
 Checks if two strings are equal.
 
 Convenience wrapper around `nexus_strings_string_compare`
 */
 extern boolean nexus_strings_string_equals(const char *str1, const char *str2);
+
+/*
+Checks if two unsigned strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_unsigned`
+*/
+extern boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2);
+
+/*
+Checks if two mixed strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_mixed`
+*/
+extern boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2);
+
+/*
+Checks if two mixed strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
+*/
+extern boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2);
 
 /* ---------------------------------------------------------------------------- */
 /* PATHS                                                                        */
@@ -876,21 +1015,23 @@ NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NErr
 #define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
 #define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
 
-#define NEXUS_ERROR_FILE_NOT_FOUND     NEXUS_ERROR_MAKE('N', 'X', 1)
-#define NEXUS_ERROR_PERMISSION_DENIED  NEXUS_ERROR_MAKE('N', 'X', 2)
-#define NEXUS_ERROR_ALREADY_EXISTS       NEXUS_ERROR_MAKE('N', 'X', 3)
-#define NEXUS_ERROR_DIR_NOT_EMPTY        NEXUS_ERROR_MAKE('N', 'X', 4)
-#define NEXUS_ERROR_DISK_FULL            NEXUS_ERROR_MAKE('N', 'X', 5)
-#define NEXUS_ERROR_INVALID_ARGUMENT     NEXUS_ERROR_MAKE('N', 'X', 6)
-#define NEXUS_ERROR_IO                   NEXUS_ERROR_MAKE('N', 'X', 7)
+#define NEXUS_ERROR_FILE_NOT_FOUND    NEXUS_ERROR_MAKE('N', 'X', 1)
+#define NEXUS_ERROR_PERMISSION_DENIED NEXUS_ERROR_MAKE('N', 'X', 2)
+#define NEXUS_ERROR_ALREADY_EXISTS    NEXUS_ERROR_MAKE('N', 'X', 3)
+#define NEXUS_ERROR_DIR_NOT_EMPTY     NEXUS_ERROR_MAKE('N', 'X', 4)
+#define NEXUS_ERROR_DISK_FULL         NEXUS_ERROR_MAKE('N', 'X', 5)
+#define NEXUS_ERROR_INVALID_ARGUMENT  NEXUS_ERROR_MAKE('N', 'X', 6)
+#define NEXUS_ERROR_IO                NEXUS_ERROR_MAKE('N', 'X', 7)
 
 /*
-nexus_errors_message_write copies a human-readable description of error into buffer.
+nexus_errors_message_write copies a human-readable description of error into buffer,
+optionally prefixed with prefix.
 
+When prefix is NULL or an empty string, the message is written without a prefix.
 Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
 buffer_max_length must be greater than zero.
 */
-extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length);
+extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
 
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
@@ -1019,18 +1160,26 @@ extern NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buf
 
 #  if defined(_MSC_VER)
 #    include <intrin.h>
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP() __debugbreak()
+#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+      __debugbreak();                                                                                                                                \
+      abort();
 #  elif defined(__GNUC__) || defined(__clang__)
 /*
   int3 advances the PC to the next instruction; the trailing nop keeps that address inside the
   assertion call-site line range so debuggers stop on the NEXUS_ASSERT* invocation, not the next statement.
 */
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP() __asm__ __volatile__("int3\n\tnop")
+#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+      __asm__ __volatile__("int3\n\tnop");                                                                                                           \
+      abort();
 #  elif defined(__i386__) || defined(__x86_64__)
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP() __asm__ __volatile__("int3\n\tnop")
+#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+      __asm__ __volatile__("int3\n\tnop");                                                                                                           \
+      abort();
 #  else /* Generic fallback */
 #    include <signal.h>
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP() (void)raise(SIGTRAP)
+#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+      (void)raise(SIGTRAP);                                                                                                                          \
+      abort();
 #  endif /* NEXUS_ASSERTIONS_DEBUG_TRAP implementation selection */
 
 /*
@@ -1103,6 +1252,102 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 #  define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
 
 #endif /* NEXUS_ASSERTIONS_ENABLED */
+
+/* ---------------------------------------------------------------------------- */
+/* BITS                                                                         */
+/* ---------------------------------------------------------------------------- */
+
+/*
+Endian-safe decoders for packed binary data.
+
+LSB functions treat bytes[0] as the least significant byte (little-endian wire order).
+MSB functions treat bytes[0] as the most significant byte (big-endian wire order).
+
+Integer signed variants reinterpret the assembled bit pattern as two's complement.
+Floating-point variants assemble an IEEE-754 bit pattern, then reinterpret it.
+
+bytes must not be NULL. Each function reads exactly sizeof(return type) bytes.
+*/
+
+/*
+nexus_bits_uint16_from_bytes_lsb decodes a 16-bit unsigned integer from 2 bytes, little-endian.
+*/
+extern uint16 nexus_bits_uint16_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_uint32_from_bytes_lsb decodes a 32-bit unsigned integer from 4 bytes, little-endian.
+*/
+extern uint32 nexus_bits_uint32_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_uint64_from_bytes_lsb decodes a 64-bit unsigned integer from 8 bytes, little-endian.
+*/
+extern uint64 nexus_bits_uint64_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_int16_from_bytes_lsb decodes a 16-bit signed integer from 2 bytes, little-endian.
+*/
+extern int16 nexus_bits_int16_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_int32_from_bytes_lsb decodes a 32-bit signed integer from 4 bytes, little-endian.
+*/
+extern int32 nexus_bits_int32_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_int64_from_bytes_lsb decodes a 64-bit signed integer from 8 bytes, little-endian.
+*/
+extern int64 nexus_bits_int64_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_real32_from_bytes_lsb decodes a 32-bit IEEE-754 float from 4 bytes, little-endian.
+*/
+extern real32 nexus_bits_real32_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_real64_from_bytes_lsb decodes a 64-bit IEEE-754 double from 8 bytes, little-endian.
+*/
+extern real64 nexus_bits_real64_from_bytes_lsb(const byte *bytes);
+
+/*
+nexus_bits_uint16_from_bytes_msb decodes a 16-bit unsigned integer from 2 bytes, big-endian.
+*/
+extern uint16 nexus_bits_uint16_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_uint32_from_bytes_msb decodes a 32-bit unsigned integer from 4 bytes, big-endian.
+*/
+extern uint32 nexus_bits_uint32_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_uint64_from_bytes_msb decodes a 64-bit unsigned integer from 8 bytes, big-endian.
+*/
+extern uint64 nexus_bits_uint64_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_int16_from_bytes_msb decodes a 16-bit signed integer from 2 bytes, big-endian.
+*/
+extern int16 nexus_bits_int16_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_int32_from_bytes_msb decodes a 32-bit signed integer from 4 bytes, big-endian.
+*/
+extern int32 nexus_bits_int32_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_int64_from_bytes_msb decodes a 64-bit signed integer from 8 bytes, big-endian.
+*/
+extern int64 nexus_bits_int64_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_real32_from_bytes_msb decodes a 32-bit IEEE-754 float from 4 bytes, big-endian.
+*/
+extern real32 nexus_bits_real32_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_real64_from_bytes_msb decodes a 64-bit IEEE-754 double from 8 bytes, big-endian.
+*/
+extern real64 nexus_bits_real64_from_bytes_msb(const byte *bytes);
 
 /* ---------------------------------------------------------------------------- */
 /* HASHING                                                                      */
