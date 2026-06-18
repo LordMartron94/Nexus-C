@@ -1,4 +1,4 @@
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__)
 #  define _POSIX_C_SOURCE 200112L
 #endif
 
@@ -10,7 +10,7 @@
 #  include <windows.h>
 #endif
 
-#if (NEXUS_PLATFORM_LINUX) || (NEXUS_PLATFORM_MACOS)
+#if NEXUS_PLATFORM_POSIX
 
 static NexusTimePrecision n_time_precision_from_nanoseconds(timestamp precision_nanoseconds) {
   if (precision_nanoseconds <= 1) {

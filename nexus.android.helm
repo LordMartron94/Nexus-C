@@ -1,0 +1,20 @@
+entity nexus_android {
+    kind = "lib"
+    use android_c_static_library {
+        params {
+            SOURCE_FILES = [
+                glob("src", include="**/*.c", recursive=true),
+            ]
+            OUT_NAME = "nexus"
+            CPPFLAGS = [ "-I.", "-Isrc" ]
+            COMPILER_FLAGS = ANDROID_LIBRARY_COMPILER_FLAGS
+        }
+    }
+
+    interface {
+        CPPFLAGS = [ "-Ilibs" ]
+        LDFLAGS = [ "-lnexus" ]
+    }
+
+    deps = [ "//external/stb:stb_android" ]
+}

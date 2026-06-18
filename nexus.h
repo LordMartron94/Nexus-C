@@ -59,6 +59,10 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #  else
 #    define NEXUS_PLATFORM_UNKNOWN 1
 #  endif
+
+#  if defined(NEXUS_PLATFORM_LINUX) || defined(NEXUS_PLATFORM_MACOS) || defined(NEXUS_PLATFORM_ANDROID)
+#    define NEXUS_PLATFORM_POSIX 1
+#  endif
 #endif /* PLATFORM DETECTION */
 
 
@@ -1014,6 +1018,25 @@ extern void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callbac
 /* Returns a pointer to the base file name within the path buffer. No allocation. */
 extern const char *nexus_paths_path_base_name_get(const NexusPath *path);
 
+/*
+nexus_paths_path_is_absolute checks whether a path is absolute or relative.
+*/
+extern boolean nexus_paths_path_is_absolute(NexusPath path);
+
+/*
+nexus_paths_path_relative_to_absolute converts a relative path to an absolute path.
+
+Safe to use if the path is already absolute.
+*/
+extern NexusPath nexus_paths_path_relative_to_absolute(NexusPath path);
+
+/*
+nexus_paths_path_absolute_to_relative converts an absolute path to a relative path.
+
+Safe to use if the path is already relative.
+*/
+extern NexusPath nexus_paths_path_absolute_to_relative(NexusPath path);
+
 /* ---------------------------------------------------------------------------- */
 /* ERRORS                                                                       */
 /* ---------------------------------------------------------------------------- */
@@ -1190,16 +1213,29 @@ extern NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buf
       abort();
 #  elif defined(__GNUC__) || defined(__clang__)
 /*
-  int3 advances the PC to the next instruction; the trailing nop keeps that address inside the
+  Each trap instruction advances the PC; the trailing nop keeps that address inside the
   assertion call-site line range so debuggers stop on the NEXUS_ASSERT* invocation, not the next statement.
 */
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-      __asm__ __volatile__("int3\n\tnop");                                                                                                           \
-      abort();
-#  elif defined(__i386__) || defined(__x86_64__)
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-      __asm__ __volatile__("int3\n\tnop");                                                                                                           \
-      abort();
+#    if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+        __asm__ __volatile__("brk #0\n\tnop");                                                                                                          \
+        abort();
+#    elif defined(__arm__) || defined(__ARM_ARCH) || defined(_M_ARM)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+        __asm__ __volatile__("bkpt #0\n\tnop");                                                                                                        \
+        abort();
+#    elif defined(__riscv) || defined(__riscv__)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+        __asm__ __volatile__("ebreak\n\tnop");                                                                                                         \
+        abort();
+#    elif defined(__i386__) || defined(__x86_64__) || defined(__amd64__)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+        __asm__ __volatile__("int3\n\tnop");                                                                                                           \
+        abort();
+#    else
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+        __builtin_trap();
+#    endif
 #  else /* Generic fallback */
 #    include <signal.h>
 #    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \

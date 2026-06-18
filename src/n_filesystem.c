@@ -7,7 +7,7 @@
 
 #if defined(NEXUS_PLATFORM_WINDOWS)
 #  include <windows.h>
-#elif defined(NEXUS_PLATFORM_LINUX) || defined(NEXUS_PLATFORM_MACOS)
+#elif NEXUS_PLATFORM_POSIX
 #  include <dirent.h>
 #  include <unistd.h>
 #else

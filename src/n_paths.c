@@ -5,12 +5,148 @@
 
 #if defined(NEXUS_PLATFORM_WINDOWS)
 #  include <windows.h>
-#elif defined(NEXUS_PLATFORM_LINUX) || defined(NEXUS_PLATFORM_MACOS)
+#elif NEXUS_PLATFORM_POSIX
 #  include <dirent.h>
 #  include <unistd.h>
+
+extern char *realpath(const char *path, char *resolved_path);
 #else
 #  error "Unsupported platform"
 #endif
+
+static boolean nexus_paths_path_is_separator(char character) {
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return character == '/' || character == '\\';
+#else
+  return character == '/';
+#endif
+}
+
+static boolean nexus_paths_path_canonicalize(const char *path, char *out_canonical) {
+  NexusPath joined_path;
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  DWORD resolved_length;
+
+  resolved_length = GetFullPathNameA(path, (DWORD)NEXUS_MAX_PATH_LENGTH, out_canonical, NULL);
+  if (resolved_length == 0 || resolved_length >= (DWORD)NEXUS_MAX_PATH_LENGTH)
+    return FALSE;
+
+  return TRUE;
+#else
+  if (realpath(path, out_canonical) != NULL)
+    return TRUE;
+
+  if (path[0] == '/') {
+    nexus_strings_string_copy(out_canonical, (uint_large)NEXUS_MAX_PATH_LENGTH, path);
+    return TRUE;
+  }
+
+  if (getcwd(out_canonical, (size_t)NEXUS_MAX_PATH_LENGTH) == NULL)
+    return FALSE;
+
+  joined_path = nexus_paths_path_create(out_canonical);
+  nexus_paths_path_append(&joined_path, path);
+  nexus_strings_string_copy(out_canonical, (uint_large)NEXUS_MAX_PATH_LENGTH, joined_path.buffer);
+  return TRUE;
+#endif
+}
+
+static NexusPath nexus_paths_path_relative_between(const char *from_canonical, const char *to_canonical) {
+  NexusPath result;
+  uint16    prefix_length;
+  uint16    scan_index;
+  uint16    to_index;
+  uint16    result_length;
+  boolean   has_component;
+
+  result.length    = 0;
+  result.buffer[0] = '\0';
+  result_length    = 0;
+  prefix_length    = 0;
+  scan_index       = 0;
+
+  while (from_canonical[scan_index] && to_canonical[scan_index] && from_canonical[scan_index] == to_canonical[scan_index]) {
+    if (nexus_paths_path_is_separator(from_canonical[scan_index]))
+      prefix_length = (uint16)(scan_index + 1);
+    scan_index++;
+  }
+
+  if (from_canonical[scan_index] == '\0' && (to_canonical[scan_index] == '\0' || nexus_paths_path_is_separator(to_canonical[scan_index]))) {
+    if (nexus_paths_path_is_separator(to_canonical[scan_index]))
+      prefix_length = (uint16)(scan_index + 1);
+    else
+      prefix_length = scan_index;
+  } else {
+    while (prefix_length > 0 && !nexus_paths_path_is_separator(from_canonical[prefix_length - 1]))
+      prefix_length--;
+  }
+
+  scan_index    = prefix_length;
+  has_component = FALSE;
+  while (from_canonical[scan_index]) {
+    if (nexus_paths_path_is_separator(from_canonical[scan_index])) {
+      if (has_component) {
+        if (result_length + 3 >= NEXUS_MAX_PATH_LENGTH)
+          return nexus_paths_path_create(to_canonical);
+
+        if (result_length > 0) {
+          result.buffer[result_length] = '/';
+          result_length++;
+        }
+
+        result.buffer[result_length]     = '.';
+        result.buffer[result_length + 1] = '.';
+        result_length                    = (uint16)(result_length + 2);
+        has_component                    = FALSE;
+      }
+    } else {
+      has_component = TRUE;
+    }
+
+    scan_index++;
+  }
+
+  if (has_component) {
+    if (result_length + 2 >= NEXUS_MAX_PATH_LENGTH)
+      return nexus_paths_path_create(to_canonical);
+
+    if (result_length > 0) {
+      result.buffer[result_length] = '/';
+      result_length++;
+    }
+
+    result.buffer[result_length]     = '.';
+    result.buffer[result_length + 1] = '.';
+    result_length                    = (uint16)(result_length + 2);
+  }
+
+  to_index = prefix_length;
+  while (nexus_paths_path_is_separator(to_canonical[to_index]))
+    to_index++;
+
+  if (to_canonical[to_index] != '\0' && result_length > 0) {
+    result.buffer[result_length] = '/';
+    result_length++;
+  }
+
+  while (to_canonical[to_index]) {
+    if (result_length + 1 >= NEXUS_MAX_PATH_LENGTH)
+      return nexus_paths_path_create(to_canonical);
+
+    result.buffer[result_length] = to_canonical[to_index];
+    result_length++;
+    to_index++;
+  }
+
+  result.buffer[result_length] = '\0';
+  result.length                = result_length;
+
+  if (result.length == 0)
+    return nexus_paths_path_create(".");
+
+  return result;
+}
 
 NexusPath nexus_paths_path_create(const char *base_path) {
   NexusPath path;
@@ -68,6 +204,62 @@ const char *nexus_paths_path_base_name_get(const NexusPath *path) {
     ptr++;
   }
   return base;
+}
+
+boolean nexus_paths_path_is_absolute(NexusPath path) {
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  if (path.length >= 2 && nexus_paths_path_is_separator(path.buffer[0]) && nexus_paths_path_is_separator(path.buffer[1]))
+    return TRUE;
+
+  if (path.length >= 2 && ((path.buffer[0] >= 'A' && path.buffer[0] <= 'Z') || (path.buffer[0] >= 'a' && path.buffer[0] <= 'z')) &&
+      path.buffer[1] == ':') {
+    if (path.length == 2)
+      return FALSE;
+
+    return nexus_paths_path_is_separator(path.buffer[2]);
+  }
+
+  return FALSE;
+#else
+  return path.length > 0 && path.buffer[0] == '/';
+#endif
+}
+
+NexusPath nexus_paths_path_relative_to_absolute(NexusPath path) {
+  char canonical_path[NEXUS_MAX_PATH_LENGTH];
+
+  if (nexus_paths_path_is_absolute(path))
+    return path;
+
+  if (!nexus_paths_path_canonicalize(path.buffer, canonical_path))
+    return path;
+
+  return nexus_paths_path_create(canonical_path);
+}
+
+NexusPath nexus_paths_path_absolute_to_relative(NexusPath path) {
+  char cwd_buffer[NEXUS_MAX_PATH_LENGTH];
+  char absolute_path[NEXUS_MAX_PATH_LENGTH];
+  char absolute_cwd[NEXUS_MAX_PATH_LENGTH];
+
+  if (!nexus_paths_path_is_absolute(path))
+    return path;
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  if (GetCurrentDirectoryA((DWORD)NEXUS_MAX_PATH_LENGTH, cwd_buffer) == 0)
+    return path;
+#else
+  if (getcwd(cwd_buffer, (size_t)NEXUS_MAX_PATH_LENGTH) == NULL)
+    return path;
+#endif
+
+  if (!nexus_paths_path_canonicalize(cwd_buffer, absolute_cwd))
+    return path;
+
+  if (!nexus_paths_path_canonicalize(path.buffer, absolute_path))
+    return path;
+
+  return nexus_paths_path_relative_between(absolute_cwd, absolute_path);
 }
 
 #if defined(NEXUS_PLATFORM_WINDOWS)
@@ -139,7 +331,7 @@ void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void
     is_dir = FALSE;
     (void)nexus_filesystem_path_is_dir(current_path, &is_dir);
 
-    if (files_only && is_dir) {
+    if (files_only && is_dir) { /* NOLINT */
       /* Skip */
     } else if (dirs_only && !is_dir) {
       /* Skip */
