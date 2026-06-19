@@ -262,6 +262,87 @@ NexusPath nexus_paths_path_absolute_to_relative(NexusPath path) {
   return nexus_paths_path_relative_between(absolute_cwd, absolute_path);
 }
 
+typedef enum NexusPathListCollectMode {
+  NEXUS_PATH_LIST_COLLECT_COUNT,
+  NEXUS_PATH_LIST_COLLECT_WRITE
+} NexusPathListCollectMode;
+
+typedef struct NexusPathListCollector {
+  NexusPathList           *path_list;
+  NexusPathListCollectMode mode;
+  uint32                   write_index;
+} NexusPathListCollector;
+
+static void nexus_paths_path_list_collector_callback(NexusPath path, void *user_data) {
+  NexusPathListCollector *collector;
+  NexusPathList          *path_list;
+
+  collector = (NexusPathListCollector *)user_data;
+  path_list = collector->path_list;
+
+  switch (collector->mode) {
+  case NEXUS_PATH_LIST_COLLECT_COUNT:
+    path_list->count++;
+    break;
+
+  case NEXUS_PATH_LIST_COLLECT_WRITE:
+    NEXUS_ASSERT_DEBUG(path_list->paths != NULL);
+    NEXUS_ASSERT_DEBUG(collector->write_index < path_list->count);
+    path_list->paths[collector->write_index] = path;
+    collector->write_index++;
+    break;
+  }
+}
+
+void nexus_paths_path_list_collect(NexusPath path, boolean recursive, boolean files_only, boolean dirs_only, NexusPathList *path_list) {
+  NexusPathListCollector collector;
+
+  NEXUS_ASSERT_DEBUG(path_list != NULL);
+
+  collector.path_list   = path_list;
+  collector.write_index = 0;
+
+  if (path_list->paths == NULL) {
+    path_list->count  = 0;
+    collector.mode    = NEXUS_PATH_LIST_COLLECT_COUNT;
+    nexus_paths_path_walk(path, nexus_paths_path_list_collector_callback, &collector, recursive, files_only, dirs_only);
+    return;
+  }
+
+  collector.mode = NEXUS_PATH_LIST_COLLECT_WRITE;
+  nexus_paths_path_walk(path, nexus_paths_path_list_collector_callback, &collector, recursive, files_only, dirs_only);
+  NEXUS_ASSERT_MESSAGE_DEBUG(collector.write_index == path_list->count, "Path list write count mismatch.");
+}
+
+NexusPathList nexus_paths_path_list_collect_allocated(NexusPath path, boolean recursive, boolean files_only, boolean dirs_only) {
+  NexusPathList path_list;
+
+  path_list.paths = NULL;
+  path_list.count = 0;
+
+  nexus_paths_path_list_collect(path, recursive, files_only, dirs_only, &path_list);
+  if (path_list.count == 0) {
+    return path_list;
+  }
+
+  path_list.paths = (NexusPath *)malloc((size_t)path_list.count * sizeof(NexusPath));
+  NEXUS_ASSERT_DEBUG(path_list.paths != NULL);
+
+  nexus_paths_path_list_collect(path, recursive, files_only, dirs_only, &path_list);
+  return path_list;
+}
+
+void nexus_paths_path_list_destroy(NexusPathList *path_list) {
+  NEXUS_ASSERT_DEBUG(path_list != NULL);
+
+  if (path_list->paths != NULL) {
+    free(path_list->paths);
+  }
+
+  path_list->paths = NULL;
+  path_list->count = 0;
+}
+
 #if defined(NEXUS_PLATFORM_WINDOWS)
 
 void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void *user_data, boolean recursive, boolean files_only,

@@ -1027,6 +1027,38 @@ If both files_only and dirs_only is set, files_only takes precedence (it does no
 extern void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void *user_data, boolean recursive, boolean files_only,
                                   boolean dirs_only);
 
+/*
+NexusPathList holds paths collected by nexus_paths_path_list_collect or nexus_paths_path_list_collect_allocated.
+*/
+typedef struct NexusPathList {
+  NexusPath *paths;
+  uint32     count;
+} NexusPathList;
+
+/*
+nexus_paths_path_list_collect gathers matching paths using the same flags as nexus_paths_path_walk.
+
+Vulkan-style two-pass usage on the same function:
+  Pass 1: Set path_list->paths to NULL. path_list->count is ignored. On return, path_list->count
+          holds the number of matching paths.
+  Pass 2: Allocate path_list->paths with at least path_list->count elements, keeping count from pass 1.
+          On return, paths[0] through paths[count - 1] are populated.
+
+path_list must not be NULL.
+*/
+extern void nexus_paths_path_list_collect(NexusPath path, boolean recursive, boolean files_only, boolean dirs_only, NexusPathList *path_list);
+
+/*
+nexus_paths_path_list_collect_allocated gathers matching paths into a Nexus-owned buffer.
+The caller must release the result with nexus_paths_path_list_destroy.
+*/
+extern NexusPathList nexus_paths_path_list_collect_allocated(NexusPath path, boolean recursive, boolean files_only, boolean dirs_only);
+
+/*
+nexus_paths_path_list_destroy releases memory owned by a NexusPathList from nexus_paths_path_list_collect_allocated.
+*/
+extern void nexus_paths_path_list_destroy(NexusPathList *path_list);
+
 /* Returns a pointer to the base file name within the path buffer. No allocation. */
 extern const char *nexus_paths_path_base_name_get(const NexusPath *path);
 
