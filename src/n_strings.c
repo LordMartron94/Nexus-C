@@ -143,17 +143,23 @@ boolean nexus_strings_string_starts_with(const char *string, const char *prefix)
 }
 
 void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src) {
-  uint_large i = 0;
+  uint_large src_length;
+  uint_large copy_length;
 
   NEXUS_ASSERT_DEBUG(dest != NULL);
   NEXUS_ASSERT_DEBUG(dest_max_len > 0);
   NEXUS_ASSERT_DEBUG(src != NULL);
 
-  while (src[i] && i < (dest_max_len - 1)) {
-    dest[i] = src[i];
-    i++;
+  src_length  = nexus_strings_string_length(src);
+  copy_length = src_length;
+  if (copy_length >= dest_max_len) {
+    copy_length = dest_max_len - 1;
   }
-  dest[i] = '\0';
+
+  if (copy_length > 0) {
+    nexus_memory_bytes_copy(dest, src, copy_length);
+  }
+  dest[copy_length] = '\0';
 }
 
 int32 nexus_strings_string_compare(const char *str1, const char *str2) {

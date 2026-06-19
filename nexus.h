@@ -834,6 +834,18 @@ This is strictly a utility function as you can just as well construct the struct
 extern NexusColorRGBA8 nexus_color_rgba8_create_rgb(uint8 red, uint8 green, uint8 blue);
 
 /* ---------------------------------------------------------------------------- */
+/* MEMORY                                                                       */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_memory_bytes_copy copies byte_count bytes from src into dest.
+
+dest and src must not be NULL when byte_count is greater than zero.
+The regions must not overlap.
+*/
+extern void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count);
+
+/* ---------------------------------------------------------------------------- */
 /* STRINGS                                                                      */
 /* ---------------------------------------------------------------------------- */
 
