@@ -928,9 +928,33 @@ extern boolean nexus_strings_string_starts_with(const char *string, const char *
 /*
 Performs a safe, bounded copy of a string. Guarantees null-termination.
 
+Truncates when src does not fit and discards the outcome. Prefer
+nexus_strings_string_copy_with_truncation when truncation must be detected.
+
 dest, src must not be NULL and dest_max_len must be greater than zero.
 */
 extern void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src);
+
+/*
+nexus_strings_string_copy_exact copies src into dest when the full string fits.
+
+If src would require more than dest_max_len characters including the null terminator,
+dest is not modified and success=FALSE with truncated=TRUE is returned.
+Otherwise, success=TRUE with written_length equal to required_length.
+
+Performance: prefer nexus_strings_string_copy_with_truncation because it does not require
+knowing src length before writing.
+*/
+extern NexusStringFormatResult nexus_strings_string_copy_exact(char *dest, uint_large dest_max_len, const char *src);
+
+/*
+nexus_strings_string_copy_with_truncation copies src into dest up to dest_max_len - 1 characters.
+
+When src is longer than the destination capacity, the copy is truncated, dest is null-terminated,
+and truncated=TRUE with success=TRUE is returned. Otherwise, success=TRUE with written_length
+equal to required_length.
+*/
+extern NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, uint_large dest_max_len, const char *src);
 
 /*
 Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.

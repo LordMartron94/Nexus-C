@@ -143,6 +143,29 @@ boolean nexus_strings_string_starts_with(const char *string, const char *prefix)
 }
 
 void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src) {
+  (void)nexus_strings_string_copy_with_truncation(dest, dest_max_len, src);
+}
+
+NexusStringFormatResult nexus_strings_string_copy_exact(char *dest, uint_large dest_max_len, const char *src) {
+  uint_large src_length;
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(dest_max_len > 0);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  src_length = nexus_strings_string_length(src);
+  if (src_length >= dest_max_len) {
+    return p_string_format_result_create(0, src_length, TRUE, FALSE);
+  }
+
+  if (src_length > 0) {
+    nexus_memory_bytes_copy(dest, src, src_length);
+  }
+  dest[src_length] = '\0';
+  return p_string_format_result_create(src_length, src_length, FALSE, TRUE);
+}
+
+NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, uint_large dest_max_len, const char *src) {
   uint_large src_length;
   uint_large copy_length;
 
@@ -160,6 +183,12 @@ void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *
     nexus_memory_bytes_copy(dest, src, copy_length);
   }
   dest[copy_length] = '\0';
+
+  if (src_length >= dest_max_len) {
+    return p_string_format_result_create(copy_length, src_length, TRUE, TRUE);
+  }
+
+  return p_string_format_result_create(src_length, src_length, FALSE, TRUE);
 }
 
 int32 nexus_strings_string_compare(const char *str1, const char *str2) {
