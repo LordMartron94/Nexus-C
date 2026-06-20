@@ -12,13 +12,13 @@ void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, v
 
 #define NEXUS_ASSERTION_FAILURE_REPORT_MAX 500
 
-void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line) {
+static void nexus_assertions_failure_report_emit(const char *expression, const char *message, const char *file, uint32 line) {
   const char *prefix;
   const char *middle;
   const char *truncation;
   const char *suffix;
 
-  char   out_message[NEXUS_ASSERTION_FAILURE_REPORT_MAX];
+  char       out_message[NEXUS_ASSERTION_FAILURE_REPORT_MAX];
   uint_large expression_length;
   uint_large message_length;
   uint_large fixed_length;
@@ -39,14 +39,8 @@ void nexus_assertions_failure_report(const char *expression, const char *message
   expression_length = nexus_strings_string_length(expression);
   message_length    = nexus_strings_string_length(message);
 
-  /*
-    Fixed part excludes the actual message content.
-
-    Layout:
-      Assertion Failure: <expression>, message '<message>'\n\0
-  */
   fixed_length = nexus_strings_string_length(prefix) + expression_length + nexus_strings_string_length(middle) + nexus_strings_string_length(suffix) +
-                 1; /* null terminator */
+                 1;
 
   if (fixed_length >= NEXUS_ASSERTION_FAILURE_REPORT_MAX) {
     (void)nexus_strings_string_format_with_truncation(out_message, NEXUS_ASSERTION_FAILURE_REPORT_MAX, "Assertion Failure: %s, message ''\n",
@@ -95,4 +89,8 @@ void nexus_assertions_failure_report(const char *expression, const char *message
   }
 
   n_error_report(n_user_data, out_message, file, line);
+}
+
+void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line) {
+  nexus_assertions_failure_report_emit(expression, message, file, line);
 }

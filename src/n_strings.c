@@ -93,6 +93,26 @@ NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *strin
 #define NEXUS_STRINGS_BYTES_PER_KIB 1024ULL
 static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
 
+static char n_internal_g_preformat_message_buffer[NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX];
+
+const char *nexus_strings_string_preformat(const char *format, ...) {
+  va_list                 args;
+  NexusStringFormatResult format_result;
+
+  NEXUS_ASSERT_DEBUG(format != NULL);
+
+  va_start(args, format);
+  format_result =
+      nexus_strings_vstring_format_with_truncation(n_internal_g_preformat_message_buffer, NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX, format, args);
+  va_end(args);
+
+  if (!format_result.success && format[0] != '\0') {
+    return "string preformat failed";
+  }
+
+  return n_internal_g_preformat_message_buffer;
+}
+
 NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count) {
   uint32 unit_index;
   real64 value;

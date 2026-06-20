@@ -515,8 +515,8 @@ extern void nexus_debug_mem_summary_print(void);
 
 /*
 nexus_debug_mem_print writes a human-readable leak report to stdout.
-Lists each call site whose net allocation count (allocated minus freed) exceeds min_allocs,
-including byte totals, live allocation counts, and any comments registered on live blocks.
+Lists each call site with more live blocks than min_allocs, including byte totals, live
+allocation counts, and each live block with pointer, size, and any comment.
 */
 extern void nexus_debug_mem_print(uint32 min_allocs);
 
@@ -910,6 +910,18 @@ nexus_strings_bytes_format writes byte_count as a human-readable binary size (B,
 Uses IEC binary prefixes (1024). string must not be NULL and max_string_length must be greater than zero.
 */
 extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count);
+
+#ifndef NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX
+#  define NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX 256
+#endif
+
+/*
+nexus_strings_string_preformat formats into an internal scratch buffer and returns a pointer to it.
+
+The returned pointer is valid until the next call to nexus_strings_string_preformat on the same thread.
+Output longer than NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX - 1 characters is truncated. format must not be NULL.
+*/
+extern const char *nexus_strings_string_preformat(const char *format, ...);
 
 /*
 nexus_strings_string_length gets the current length of a string.
@@ -1324,7 +1336,7 @@ nexus_assertions_error_callback_set sets the callback used for reporting asserti
 extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
 
 /*
-nexus_assertion_failure_report reports an assertion failure.
+nexus_assertions_failure_report reports an assertion failure with a plain message string.
 */
 extern void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line);
 

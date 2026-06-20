@@ -318,6 +318,7 @@ static void nexus_debug_mem_add(void *pointer, size_t size, char *file, unsigned
     n_alloc_lines[i].allocs[0].size    = size;
     n_alloc_lines[i].allocs[0].buf     = pointer;
     n_alloc_lines[i].allocs[0].comment = NULL;
+    n_alloc_lines[i].allocs[0].active  = nexus_memory_active;
     n_alloc_lines[i].alloc_count       = 1;
     n_alloc_lines[i].freed             = 0;
     if (nexus_memory_active) {
@@ -712,6 +713,19 @@ static void nexus_debug_mem_summary_print_bytes(const char *label, uint_large by
   printf("%-28s%s\n", label, formatted);
 }
 
+/*
+Caller must hold n_alloc_mutex when thread-safe init is configured.
+*/
+static void nexus_debug_mem_live_allocation_print(const NexusMemAllocLine *site, const NexusMemAllocBuf *alloc) {
+  char size_label[64];
+
+  (void)nexus_strings_bytes_format(size_label, (uint_large)(sizeof size_label), (uint_large)alloc->size);
+  printf("  %p  %s  %s:%u", alloc->buf, size_label, site->file, site->line);
+  if (alloc->comment != NULL)
+    printf("  (%s)", alloc->comment);
+  printf("\n");
+}
+
 void nexus_debug_mem_summary_print(void) {
   NexusDebugMemSummary summary;
 
@@ -742,21 +756,16 @@ void nexus_debug_mem_print(unsigned int min_allocs) {
   (void)nexus_strings_bytes_format(consumption_label, (uint_large)(sizeof consumption_label), (uint_large)nexus_debug_mem_consumption());
   printf("Memory report: %s\n----------------------------------------------\n", consumption_label);
   for (i = 0; i < n_alloc_line_count; i++) {
-    if (min_allocs < n_alloc_lines[i].allocated - n_alloc_lines[i].freed) {
-      alloc_count = 0;
-      for (j = 0; j < n_alloc_lines[i].alloc_count; j++)
-        if (n_alloc_lines[i].allocs[j].active)
-          alloc_count++;
-      if (alloc_count > 0) {
-        char site_bytes[64];
+    alloc_count = n_alloc_lines[i].alloc_count;
+    if (min_allocs < alloc_count) {
+      char site_bytes[64];
 
-        (void)nexus_strings_bytes_format(site_bytes, (uint_large)(sizeof site_bytes), (uint_large)n_alloc_lines[i].size);
-        printf("%s line: %u\n", n_alloc_lines[i].file, n_alloc_lines[i].line);
-        printf(" - bytes allocated: %s\n - allocations: %u\n - frees: %u\n\n", site_bytes, alloc_count, (unsigned int)n_alloc_lines[i].freed);
-        for (j = 0; j < n_alloc_lines[i].alloc_count; j++)
-          if (n_alloc_lines[i].allocs[j].comment != NULL)
-            printf("\t\tcomment %p: %s\n", n_alloc_lines[i].allocs[j].buf, n_alloc_lines[i].allocs[j].comment);
-      }
+      (void)nexus_strings_bytes_format(site_bytes, (uint_large)(sizeof site_bytes), (uint_large)n_alloc_lines[i].size);
+      printf("%s line: %u\n", n_alloc_lines[i].file, n_alloc_lines[i].line);
+      printf(" - bytes allocated: %s\n - allocations: %u\n - frees: %u\n", site_bytes, alloc_count, (unsigned int)n_alloc_lines[i].freed);
+      for (j = 0; j < n_alloc_lines[i].alloc_count; j++)
+        nexus_debug_mem_live_allocation_print(&n_alloc_lines[i], &n_alloc_lines[i].allocs[j]);
+      printf("\n");
     }
   }
   printf("----------------------------------------------\n");
