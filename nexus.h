@@ -636,6 +636,36 @@ extern void exit_crash(uint32 status_code);
 #endif
 
 /* ---------------------------------------------------------------------------- */
+/* VERSION                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+#ifndef NEXUS_VERSION_PACK
+#  define NEXUS_VERSION_PACK(variant, major, minor, patch)                                                                                         \
+    ((NexusSemanticVersion)(((NexusSemanticVersion)(variant) & 0xFFFFu) << 48) | (((NexusSemanticVersion)(major) & 0xFFFFu) << 32) |                 \
+     (((NexusSemanticVersion)(minor) & 0xFFFFu) << 16) | ((NexusSemanticVersion)(patch) & 0xFFFFu))
+#endif
+
+/*
+NexusSemanticVersion stores packed variant/major/minor/patch fields in a uint64.
+*/
+typedef uint64 NexusSemanticVersion;
+
+/*
+nexus_version_pack packs variant/major/minor/patch into a semantic version.
+*/
+extern NexusSemanticVersion nexus_version_pack(uint16 variant, uint16 major, uint16 minor, uint16 patch);
+
+/*
+nexus_version_unpack unpacks a semantic version into its component fields.
+*/
+extern void nexus_version_unpack(NexusSemanticVersion version, uint16 *out_variant, uint16 *out_major, uint16 *out_minor, uint16 *out_patch);
+
+/*
+nexus_version_format writes a semantic version as "variant.major.minor.patch".
+*/
+extern void nexus_version_format(NexusSemanticVersion version, char *out_buffer, uint_large out_buffer_size);
+
+/* ---------------------------------------------------------------------------- */
 /* TIME                                                                         */
 /* ---------------------------------------------------------------------------- */
 
