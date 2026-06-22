@@ -1,6 +1,6 @@
 #include <stdarg.h>
 #include "../nexus.h"
-#include <stb/stb_sprintf.h>
+#include "stb_sprintf.h"
 
 static NexusStringFormatResult p_string_format_result_create(uint_large written_length, uint_large required_length, uint8 truncated, uint8 success) {
   NexusStringFormatResult result;

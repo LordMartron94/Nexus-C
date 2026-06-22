@@ -12,7 +12,7 @@ entity nexus {
     }
 
     interface {
-        CPPFLAGS = [ "-Ilibs" ]
+        INCLUDE_PATHS = [ rel(".") ]
         LDFLAGS = [ "-lnexus" ]
     }
 
