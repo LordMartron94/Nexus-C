@@ -28,7 +28,7 @@ static NexusTimePrecision n_time_precision_from_nanoseconds(timestamp precision_
   return NTP_SECOND;
 }
 
-static NexusTime nexus_time_from_clock(int clock_id) {
+static NexusTime nexus_time_from_clock(int clock_id, NexusClockOrigin clock_origin) {
   struct timespec current_clock;
   struct timespec clock_resolution;
   timestamp       precision_nanoseconds;
@@ -48,24 +48,25 @@ static NexusTime nexus_time_from_clock(int clock_id) {
 
   current_time_ns = ((uint64)current_clock.tv_sec * (uint64)NEXUS_NANOSECONDS_PER_SECOND) + (uint64)current_clock.tv_nsec;
 
-  current_time.time      = current_time_ns;
-  current_time.precision = n_time_precision_from_nanoseconds(precision_nanoseconds);
+  current_time.time         = current_time_ns;
+  current_time.precision    = n_time_precision_from_nanoseconds(precision_nanoseconds);
+  current_time.clock_origin = clock_origin;
 
   return current_time;
 }
 
 NexusTime nexus_time_get_real(void) {
-  return nexus_time_from_clock(CLOCK_REALTIME);
+  return nexus_time_from_clock(CLOCK_REALTIME, NCO_REAL);
 }
 
 NexusTime nexus_time_get_monotonic(void) {
-  return nexus_time_from_clock(CLOCK_MONOTONIC);
+  return nexus_time_from_clock(CLOCK_MONOTONIC, NCO_MONOTONIC);
 }
 
 #elif NEXUS_PLATFORM_WINDOWS
 
 static NexusTimePrecision n_cached_precision         = NTP_COUNT;
-static uint_large           n_cached_counts_per_second = 0;
+static uint_large         n_cached_counts_per_second = 0;
 
 static NexusTimePrecision n_time_precision_from_counts_per_second(uint_large counts_per_second) {
   if (counts_per_second == 0) {
@@ -116,12 +117,13 @@ NexusTime nexus_time_get_real(void) {
     current_time.precision = NTP_MILLISECOND; /* conservative */
   }
 
-  current_time.time = n_filetime_to_unix_ns(&ft);
+  current_time.time         = n_filetime_to_unix_ns(&ft);
+  current_time.clock_origin = NCO_REAL;
   return current_time;
 }
 
 NexusTime nexus_time_get_monotonic(void) {
-  NexusTime current_time = {0};
+  NexusTime  current_time = {0};
   uint_large counts_per_second;
   uint_large current_counts;
 
@@ -133,22 +135,20 @@ NexusTime nexus_time_get_monotonic(void) {
     n_cached_precision         = n_time_precision_from_counts_per_second(counts_per_second);
   }
 
-  current_time.precision = n_cached_precision;
+  current_time.precision    = n_cached_precision;
+  current_time.clock_origin = NCO_MONOTONIC;
 
   if (!QueryPerformanceCounter((LARGE_INTEGER *)&current_counts)) {
     NEXUS_ASSERT_MESSAGE(FALSE, "QueryPerformanceCounter failed");
   }
 
   /* Precise scaling: (counts * NS_PER_SEC) / freq */
-  current_time.time =
-      (timestamp)(((uint64)current_counts * (uint64)NEXUS_NANOSECONDS_PER_SECOND) / (uint64)n_cached_counts_per_second);
+  current_time.time = (timestamp)(((uint64)current_counts * (uint64)NEXUS_NANOSECONDS_PER_SECOND) / (uint64)n_cached_counts_per_second);
 
   return current_time;
 }
 
 #endif
-
-/* TODO - consolidate into an actual crash system (and integrating with `errno` for proper error reporting) */
 
 NexusDuration nexus_time_duration_from_nanoseconds(int64 nanoseconds) {
   NexusDuration duration;
@@ -178,13 +178,30 @@ NexusDuration nexus_time_duration_from_seconds(int64 seconds) {
   return duration;
 }
 
+NexusDuration nexus_time_duration_between(NexusTime start, NexusTime end) {
+  NexusDuration result;
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(start.clock_origin == end.clock_origin, "NexusTime clock origins must match for duration_between");
+
+  result.precision = start.precision < end.precision ? start.precision : end.precision;
+
+  if (end.time >= start.time) {
+    result.nanoseconds = (int64)(end.time - start.time);
+  } else {
+    result.nanoseconds = -((int64)(start.time - end.time));
+  }
+
+  return result;
+}
+
 NexusTime nexus_time_add_duration(NexusTime time, NexusDuration duration) {
   NexusTime result;
   timestamp base_time;
   timestamp offset;
   timestamp new_time;
 
-  result.precision = (time.precision < duration.precision) ? time.precision : duration.precision;
+  result.clock_origin = time.clock_origin;
+  result.precision    = (time.precision < duration.precision) ? time.precision : duration.precision;
 
   base_time = time.time;
   offset    = (timestamp)duration.nanoseconds;
@@ -260,6 +277,8 @@ NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time) {
 #endif
   int conversion_ok;
 
+  NEXUS_ASSERT_MESSAGE_DEBUG(utc_time.clock_origin == NCO_REAL, "nexus_time_to_local_datetime requires real clock time");
+
   /* Initialize baseline */
   date_time.year       = 0;
   date_time.month      = 0;
@@ -302,4 +321,43 @@ NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time) {
   date_time.is_dst = (int8)tm_info.tm_isdst;
 
   return date_time;
+}
+
+NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_string_length, NexusDuration duration) {
+  f_real nanoseconds;
+  f_real absolute_nanoseconds;
+  f_real scaled_value;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+
+  nanoseconds          = (f_real)duration.nanoseconds;
+  absolute_nanoseconds = duration.nanoseconds >= 0 ? nanoseconds : -nanoseconds;
+
+  if (absolute_nanoseconds < (f_real)NEXUS_NANOSECONDS_PER_MICROSECOND) {
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f ns", nanoseconds);
+  }
+
+  if (absolute_nanoseconds < (f_real)NEXUS_NANOSECONDS_PER_MILLISECOND) {
+    scaled_value = nanoseconds / (f_real)NEXUS_NANOSECONDS_PER_MICROSECOND;
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f us", scaled_value);
+  }
+
+  if (absolute_nanoseconds < (f_real)NEXUS_NANOSECONDS_PER_SECOND) {
+    scaled_value = nanoseconds / (f_real)NEXUS_NANOSECONDS_PER_MILLISECOND;
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f ms", scaled_value);
+  }
+
+  scaled_value = nanoseconds / (f_real)NEXUS_NANOSECONDS_PER_SECOND;
+  return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f s", scaled_value);
+}
+
+NexusStringFormatResult nexus_time_datetime_format(char *string, uint_large max_string_length, NexusDateTime date_time) {
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+
+  return nexus_strings_string_format_with_truncation(string, max_string_length, "%04d-%02d-%02d %02d:%02d:%02d.%09u", (int)date_time.year,
+                                                     (unsigned int)date_time.month, (unsigned int)date_time.day, (unsigned int)date_time.hour,
+                                                     (unsigned int)date_time.minute, (unsigned int)date_time.second,
+                                                     (unsigned int)date_time.nanosecond);
 }

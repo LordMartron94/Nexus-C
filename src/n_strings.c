@@ -139,6 +139,55 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_
   return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", value, units[unit_index]);
 }
 
+static uint8 n_strings_character_is_alphanumeric(char character) {
+  if (character >= 'A' && character <= 'Z') {
+    return TRUE;
+  }
+  if (character >= 'a' && character <= 'z') {
+    return TRUE;
+  }
+  if (character >= '0' && character <= '9') {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+NexusStringFormatResult nexus_strings_string_replace_non_alphanumeric(char *dest, uint_large dest_max_len, const char *src, char replacement) {
+  uint_large dest_index;
+  uint_large src_index;
+  uint8      truncated;
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(dest_max_len > 0);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  dest_index = 0;
+  src_index  = 0;
+  truncated  = FALSE;
+
+  while (src[src_index] != '\0') {
+    char output_character;
+
+    if (n_strings_character_is_alphanumeric(src[src_index]) == TRUE) {
+      output_character = src[src_index];
+    } else {
+      output_character = replacement;
+    }
+
+    if (dest_index + 1 >= dest_max_len) {
+      truncated = TRUE;
+      break;
+    }
+
+    dest[dest_index] = output_character;
+    dest_index++;
+    src_index++;
+  }
+
+  dest[dest_index] = '\0';
+  return p_string_format_result_create(dest_index, src_index, truncated, TRUE);
+}
+
 uint_large nexus_strings_string_length(const char *string) {
   const char *ptr;
 

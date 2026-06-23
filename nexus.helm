@@ -13,7 +13,7 @@ entity nexus {
 
     interface {
         INCLUDE_PATHS = [ rel(".") ]
-        LDFLAGS = [ "-lnexus" ]
+        LDFLAGS = [ "-lnexus", "-lm" ]
     }
 
     deps = [ "//external/stb:stb" ]

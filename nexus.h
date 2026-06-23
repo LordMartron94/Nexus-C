@@ -316,10 +316,6 @@ typedef float f_real;
 #  define INT64_MAX_VAL  _I64_MAX
 #  define INT64_MIN_VAL  _I64_MIN
 #  define UINT64_MAX_VAL _UI64_MAX
-#elif defined(__GNUC__) || defined(__clang__) || defined(__LP64__) || defined(_LP64)
-#  define INT64_MAX_VAL  LLONG_MAX
-#  define INT64_MIN_VAL  LLONG_MIN
-#  define UINT64_MAX_VAL ULLONG_MAX
 #else
 #  define INT64_MAX_VAL  ((int64)9223372036854775807LL)
 #  define INT64_MIN_VAL  ((int64)(-9223372036854775807LL - 1))
@@ -351,6 +347,130 @@ typedef float f_real;
 #  define F_REAL_MAX REAL32_MAX_VAL
 #  define F_REAL_MIN REAL32_MIN_VAL
 #endif
+
+/* ---------------------------------------------------------------------------- */
+/* REALS                                                                        */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusRealRoundMode selects how floating-point values are rounded before integer conversion.
+*/
+typedef enum NexusRealRoundMode {
+  /*
+  NRRM_FLOOR rounds toward negative infinity.
+  */
+  NRRM_FLOOR,
+
+  /*
+  NRRM_CEIL rounds toward positive infinity.
+  */
+  NRRM_CEIL,
+
+  /*
+  NRRM_TRUNC rounds toward zero.
+  */
+  NRRM_TRUNC,
+
+  /*
+  NRRM_ROUND rounds to the nearest integer; halves move away from zero.
+  */
+  NRRM_ROUND,
+
+  /*
+  NRRM_ROUND_EVEN rounds to the nearest integer; halves move to the nearest even value.
+  */
+  NRRM_ROUND_EVEN,
+
+  /*
+  NRRM_COUNT is the number of NexusRealRoundMode enum values.
+  */
+  NRRM_COUNT
+} NexusRealRoundMode;
+
+/*
+nexus_real32_round rounds a 32-bit float using the selected mode.
+*/
+extern real32 nexus_real32_round(real32 value, NexusRealRoundMode mode);
+
+/*
+nexus_real64_round rounds a 64-bit float using the selected mode.
+*/
+extern real64 nexus_real64_round(real64 value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round rounds the configured f_real type using the selected mode.
+*/
+extern f_real nexus_real_round(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real32_round_to_int32 rounds then converts to int32. Debug builds assert range.
+*/
+extern int32 nexus_real32_round_to_int32(real32 value, NexusRealRoundMode mode);
+
+/*
+nexus_real32_round_to_int64 rounds then converts to int64. Debug builds assert range.
+*/
+extern int64 nexus_real32_round_to_int64(real32 value, NexusRealRoundMode mode);
+
+/*
+nexus_real32_round_to_uint32 rounds then converts to uint32. Debug builds assert range.
+*/
+extern uint32 nexus_real32_round_to_uint32(real32 value, NexusRealRoundMode mode);
+
+/*
+nexus_real32_round_to_uint64 rounds then converts to uint64. Debug builds assert range.
+*/
+extern uint64 nexus_real32_round_to_uint64(real32 value, NexusRealRoundMode mode);
+
+/*
+nexus_real64_round_to_int32 rounds then converts to int32. Debug builds assert range.
+*/
+extern int32 nexus_real64_round_to_int32(real64 value, NexusRealRoundMode mode);
+
+/*
+nexus_real64_round_to_int64 rounds then converts to int64. Debug builds assert range.
+*/
+extern int64 nexus_real64_round_to_int64(real64 value, NexusRealRoundMode mode);
+
+/*
+nexus_real64_round_to_uint32 rounds then converts to uint32. Debug builds assert range.
+*/
+extern uint32 nexus_real64_round_to_uint32(real64 value, NexusRealRoundMode mode);
+
+/*
+nexus_real64_round_to_uint64 rounds then converts to uint64. Debug builds assert range.
+*/
+extern uint64 nexus_real64_round_to_uint64(real64 value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round_to_int32 rounds f_real then converts to int32. Debug builds assert range.
+*/
+extern int32 nexus_real_round_to_int32(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round_to_int64 rounds f_real then converts to int64. Debug builds assert range.
+*/
+extern int64 nexus_real_round_to_int64(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round_to_uint32 rounds f_real then converts to uint32. Debug builds assert range.
+*/
+extern uint32 nexus_real_round_to_uint32(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round_to_uint64 rounds f_real then converts to uint64. Debug builds assert range.
+*/
+extern uint64 nexus_real_round_to_uint64(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round_to_int_large rounds f_real then converts to int_large. Debug builds assert range.
+*/
+extern int_large nexus_real_round_to_int_large(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real_round_to_uint_large rounds f_real then converts to uint_large. Debug builds assert range.
+*/
+extern uint_large nexus_real_round_to_uint_large(f_real value, NexusRealRoundMode mode);
 
 /* ---------------------------------------------------------------------------- */
 /* DEBUGGING AND MEMORY                                                         */
@@ -666,175 +786,6 @@ nexus_version_format writes a semantic version as "variant.major.minor.patch".
 extern void nexus_version_format(NexusSemanticVersion version, char *out_buffer, uint_large out_buffer_size);
 
 /* ---------------------------------------------------------------------------- */
-/* TIME                                                                         */
-/* ---------------------------------------------------------------------------- */
-
-#ifndef NEXUS_TIME_DEFINES
-#  define NEXUS_TIME_DEFINES
-#  define NEXUS_NANOSECONDS_PER_MICROSECOND 1000ULL
-#  define NEXUS_NANOSECONDS_PER_MILLISECOND 1000000ULL
-#  define NEXUS_NANOSECONDS_PER_SECOND      1000000000ULL
-#endif
-
-/*
-NexusTimePrecision is an enum specifying different precisions for time.
-*/
-typedef enum NexusTimePrecision {
-  /*
-  NTP_NANOSECOND indicates a nanosecond precision.
-  */
-  NTP_NANOSECOND,
-
-  /*
-  NTP_MICROSECOND indicates a microsecond precision.
-  */
-  NTP_MICROSECOND,
-
-  /*
-  NTP_MILLISECOND indicates a millisecond precision.
-  */
-  NTP_MILLISECOND,
-
-  /*
-  NTP_SECOND indicates a second precision.
-  */
-  NTP_SECOND,
-
-  /*
-  NTP_COUNT is the number of NexusTimePrecision enum values.
-  */
-  NTP_COUNT
-} NexusTimePrecision;
-
-/*
-NexusTime represents an absolute, timezone-agnostic point in time (Machine Time).
-
-CRITICAL ARCHITECTURE NOTE:
-This struct must strictly hold either a pure UTC Epoch or a Monotonic hardware count.
-Never mathematically shift this value to represent a local timezone offset. Timezones
-are exclusively a presentation-layer concern handled by NexusDateTime.
-*/
-typedef struct NexusTime {
-  /*
-  time stores the raw timestamp. The semantic meaning (UTC Epoch vs. Monotonic)
-  is defined by the function used to generate it.
-  */
-  timestamp time;
-
-  /*
-  precision stores the reported precision for the used clock (`clock_getres` semantics).
-  This indicates the mathematical trustworthiness of the sub-second field.
-  */
-  NexusTimePrecision precision;
-} NexusTime;
-
-/*
-nexus_time_get_real returns the current wall-clock time as a pure UTC Epoch.
-*/
-extern NexusTime nexus_time_get_real(void);
-
-/*
-nexus_time_get_monotonic returns an absolute monotonic duration since an arbitrary
-hardware boot point. Useful only for measuring durations; never for calendar dates.
-*/
-extern NexusTime nexus_time_get_monotonic(void);
-
-/*
-NexusDateTime represents a broken-down calendar date and time (Human Time).
-This is the presentation layer. It provides human-readable components and
-should be the only structure that ever reflects a local timezone or DST.
-*/
-typedef struct NexusDateTime {
-  /* year: Full year (e.g., 2026). Supports negative years for dates before 1 AD. */
-  int32 year;
-  /* month: Month of the year [1, 12]. */
-  uint8 month;
-  /* day: Day of the month [1, 31]. */
-  uint8 day;
-  /* hour: Hour of the day [0, 23]. */
-  uint8 hour;
-  /* minute: Minute of the hour [0, 59]. */
-  uint8 minute;
-  /* second: Second of the minute [0, 60] (60 accommodates leap seconds). */
-  uint8 second;
-  /* nanosecond: Sub-second precision [0, 999999999]. */
-  uint32 nanosecond;
-  /* precision: The original precision reported for the used clock. */
-  NexusTimePrecision precision;
-  /* is_dst: Indicates whether Daylight Saving Time was in effect.
-  (-1 = unknown, 0 = no, 1 = yes).
-  */
-  int8 is_dst;
-} NexusDateTime;
-
-/*
-NexusDuration represents a signed time interval.
-It is independent of any absolute point in time and can be positive or negative.
-*/
-typedef struct NexusDuration {
-  /* nanoseconds: Signed duration in nanoseconds. */
-  int64 nanoseconds;
-  /* precision: Indicates the minimal granularity used to calculate this duration. */
-  NexusTimePrecision precision;
-} NexusDuration;
-
-extern NexusDuration nexus_time_duration_from_nanoseconds(int64 nanoseconds);
-extern NexusDuration nexus_time_duration_from_microseconds(int64 microseconds);
-extern NexusDuration nexus_time_duration_from_milliseconds(int64 milliseconds);
-extern NexusDuration nexus_time_duration_from_seconds(int64 seconds);
-
-/*
-nexus_time_add_duration safely adds a duration to a baseline time.
-Automatically handles integer overflow by clamping to standard maximums.
-*/
-extern NexusTime nexus_time_add_duration(NexusTime time, NexusDuration duration);
-
-/*
-nexus_time_sub_duration safely subtracts a duration from a baseline time.
-Automatically handles integer underflow by clamping to zero.
-*/
-extern NexusTime nexus_time_sub_duration(NexusTime time, NexusDuration duration);
-
-/*
-nexus_time_duration_add returns the sum of two durations.
-The resulting precision is clamped to the least precise input.
-*/
-extern NexusDuration nexus_time_duration_add(NexusDuration duration1, NexusDuration duration2);
-
-/*
-nexus_time_duration_sub returns the difference between two durations.
-The resulting precision is clamped to the least precise input.
-*/
-extern NexusDuration nexus_time_duration_sub(NexusDuration duration1, NexusDuration duration2);
-
-/*
-nexus_time_duration_mul scales a duration by an integer multiplier.
-*/
-extern NexusDuration nexus_time_duration_mul(NexusDuration duration, int64 scalar);
-
-/*
-nexus_time_duration_div scales a duration by an integer divisor.
-Safely handles division by zero by yielding a zeroed duration.
-*/
-extern NexusDuration nexus_time_duration_div(NexusDuration duration, int64 scalar);
-
-/*
-nexus_time_duration_mul_f scales a duration by a floating-point multiplier.
-WARNING: Precision will be truncated and lost for durations exceeding ~104 days
-due to f_real mantissa limits.
-*/
-extern NexusDuration nexus_time_duration_mul_f(NexusDuration duration, f_real scalar);
-
-/*
-nexus_time_to_local_datetime converts a pure UTC Epoch directly into a localized
-Human Time presentation structure.
-
-This safely intercepts the OS timezone and DST rules without destroying the
-mathematical integrity of the underlying integer.
-*/
-extern NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time);
-
-/* ---------------------------------------------------------------------------- */
 /* COLOR                                                                        */
 /* ---------------------------------------------------------------------------- */
 
@@ -940,6 +891,13 @@ nexus_strings_bytes_format writes byte_count as a human-readable binary size (B,
 Uses IEC binary prefixes (1024). string must not be NULL and max_string_length must be greater than zero.
 */
 extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count);
+
+/*
+nexus_strings_string_replace_non_alphanumeric copies src into dest, replacing each character that is not
+an ASCII letter or digit with replacement. dest is always null-terminated within dest_max_len.
+*/
+extern NexusStringFormatResult nexus_strings_string_replace_non_alphanumeric(char *dest, uint_large dest_max_len, const char *src,
+                                                                             char replacement);
 
 #ifndef NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX
 #  define NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX 256
@@ -1053,6 +1011,219 @@ Checks if two mixed strings are equal.
 Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
 */
 extern boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2);
+
+/* ---------------------------------------------------------------------------- */
+/* TIME                                                                         */
+/* ---------------------------------------------------------------------------- */
+
+#ifndef NEXUS_TIME_DEFINES
+#  define NEXUS_TIME_DEFINES
+#  define NEXUS_NANOSECONDS_PER_MICROSECOND 1000ULL
+#  define NEXUS_NANOSECONDS_PER_MILLISECOND 1000000ULL
+#  define NEXUS_NANOSECONDS_PER_SECOND      1000000000ULL
+#endif
+
+/*
+NexusTimePrecision is an enum specifying different precisions for time.
+*/
+typedef enum NexusTimePrecision {
+  /*
+  NTP_NANOSECOND indicates a nanosecond precision.
+  */
+  NTP_NANOSECOND,
+
+  /*
+  NTP_MICROSECOND indicates a microsecond precision.
+  */
+  NTP_MICROSECOND,
+
+  /*
+  NTP_MILLISECOND indicates a millisecond precision.
+  */
+  NTP_MILLISECOND,
+
+  /*
+  NTP_SECOND indicates a second precision.
+  */
+  NTP_SECOND,
+
+  /*
+  NTP_COUNT is the number of NexusTimePrecision enum values.
+  */
+  NTP_COUNT
+} NexusTimePrecision;
+
+/*
+NexusClockOrigin identifies which OS clock produced a NexusTime value.
+*/
+typedef enum NexusClockOrigin {
+  /*
+  NCO_REAL indicates wall-clock UTC epoch time from nexus_time_get_real.
+  */
+  NCO_REAL,
+
+  /*
+  NCO_MONOTONIC indicates a monotonic hardware clock from nexus_time_get_monotonic.
+  */
+  NCO_MONOTONIC,
+
+  /*
+  NCO_COUNT is the number of NexusClockOrigin enum values.
+  */
+  NCO_COUNT
+} NexusClockOrigin;
+
+/*
+NexusTime represents an absolute, timezone-agnostic point in time (Machine Time).
+
+CRITICAL ARCHITECTURE NOTE:
+This struct must strictly hold either a pure UTC Epoch or a Monotonic hardware count.
+Never mathematically shift this value to represent a local timezone offset. Timezones
+are exclusively a presentation-layer concern handled by NexusDateTime.
+*/
+typedef struct NexusTime {
+  /*
+  time stores the raw timestamp. The semantic meaning (UTC Epoch vs. Monotonic)
+  is defined by clock_origin.
+  */
+  timestamp time;
+
+  /*
+  precision stores the reported precision for the used clock (`clock_getres` semantics).
+  This indicates the mathematical trustworthiness of the sub-second field.
+  */
+  NexusTimePrecision precision;
+
+  /*
+  clock_origin records which clock produced this value. Debug builds assert that
+  operations combining NexusTime values use matching origins.
+  */
+  NexusClockOrigin clock_origin;
+} NexusTime;
+
+/*
+nexus_time_get_real returns the current wall-clock time as a pure UTC Epoch.
+*/
+extern NexusTime nexus_time_get_real(void);
+
+/*
+nexus_time_get_monotonic returns an absolute monotonic duration since an arbitrary
+hardware boot point. Useful only for measuring durations; never for calendar dates.
+*/
+extern NexusTime nexus_time_get_monotonic(void);
+
+/*
+NexusDateTime represents a broken-down calendar date and time (Human Time).
+This is the presentation layer. It provides human-readable components and
+should be the only structure that ever reflects a local timezone or DST.
+*/
+typedef struct NexusDateTime {
+  /* year: Full year (e.g., 2026). Supports negative years for dates before 1 AD. */
+  int32 year;
+  /* month: Month of the year [1, 12]. */
+  uint8 month;
+  /* day: Day of the month [1, 31]. */
+  uint8 day;
+  /* hour: Hour of the day [0, 23]. */
+  uint8 hour;
+  /* minute: Minute of the hour [0, 59]. */
+  uint8 minute;
+  /* second: Second of the minute [0, 60] (60 accommodates leap seconds). */
+  uint8 second;
+  /* nanosecond: Sub-second precision [0, 999999999]. */
+  uint32 nanosecond;
+  /* precision: The original precision reported for the used clock. */
+  NexusTimePrecision precision;
+  /* is_dst: Indicates whether Daylight Saving Time was in effect.
+  (-1 = unknown, 0 = no, 1 = yes).
+  */
+  int8 is_dst;
+} NexusDateTime;
+
+/*
+NexusDuration represents a signed time interval.
+It is independent of any absolute point in time and can be positive or negative.
+*/
+typedef struct NexusDuration {
+  /* nanoseconds: Signed duration in nanoseconds. */
+  int64 nanoseconds;
+  /* precision: Indicates the minimal granularity used to calculate this duration. */
+  NexusTimePrecision precision;
+} NexusDuration;
+
+extern NexusDuration nexus_time_duration_from_nanoseconds(int64 nanoseconds);
+extern NexusDuration nexus_time_duration_from_microseconds(int64 microseconds);
+extern NexusDuration nexus_time_duration_from_milliseconds(int64 milliseconds);
+extern NexusDuration nexus_time_duration_from_seconds(int64 seconds);
+
+/*
+nexus_time_duration_between returns the signed elapsed time from start to end.
+The result is negative when end precedes start. Debug builds assert matching clock_origin.
+*/
+extern NexusDuration nexus_time_duration_between(NexusTime start, NexusTime end);
+
+/*
+nexus_time_add_duration safely adds a duration to a baseline time.
+Automatically handles integer overflow by clamping to standard maximums.
+*/
+extern NexusTime nexus_time_add_duration(NexusTime time, NexusDuration duration);
+
+/*
+nexus_time_sub_duration safely subtracts a duration from a baseline time.
+Automatically handles integer underflow by clamping to zero.
+*/
+extern NexusTime nexus_time_sub_duration(NexusTime time, NexusDuration duration);
+
+/*
+nexus_time_duration_add returns the sum of two durations.
+The resulting precision is clamped to the least precise input.
+*/
+extern NexusDuration nexus_time_duration_add(NexusDuration duration1, NexusDuration duration2);
+
+/*
+nexus_time_duration_sub returns the difference between two durations.
+The resulting precision is clamped to the least precise input.
+*/
+extern NexusDuration nexus_time_duration_sub(NexusDuration duration1, NexusDuration duration2);
+
+/*
+nexus_time_duration_mul scales a duration by an integer multiplier.
+*/
+extern NexusDuration nexus_time_duration_mul(NexusDuration duration, int64 scalar);
+
+/*
+nexus_time_duration_div scales a duration by an integer divisor.
+Safely handles division by zero by yielding a zeroed duration.
+*/
+extern NexusDuration nexus_time_duration_div(NexusDuration duration, int64 scalar);
+
+/*
+nexus_time_duration_mul_f scales a duration by a floating-point multiplier.
+WARNING: Precision will be truncated and lost for durations exceeding ~104 days
+due to f_real mantissa limits.
+*/
+extern NexusDuration nexus_time_duration_mul_f(NexusDuration duration, f_real scalar);
+
+/*
+nexus_time_to_local_datetime converts a pure UTC Epoch directly into a localized
+Human Time presentation structure.
+
+This safely intercepts the OS timezone and DST rules without destroying the
+mathematical integrity of the underlying integer.
+*/
+extern NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time);
+
+/*
+nexus_time_duration_format writes duration as a human-readable interval (ns, us, ms, s).
+Uses decimal SI scaling (1000). string must not be NULL and max_string_length must be greater than zero.
+*/
+extern NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_string_length, NexusDuration duration);
+
+/*
+nexus_time_datetime_format writes date_time as a local calendar timestamp string.
+Format: YYYY-MM-DD HH:MM:SS.nnnnnnnnn. string must not be NULL and max_string_length must be greater than zero.
+*/
+extern NexusStringFormatResult nexus_time_datetime_format(char *string, uint_large max_string_length, NexusDateTime date_time);
 
 /* ---------------------------------------------------------------------------- */
 /* PATHS                                                                        */
@@ -1525,3 +1696,9 @@ extern real64 nexus_bits_real64_from_bytes_msb(const byte *bytes);
 /* ---------------------------------------------------------------------------- */
 
 typedef struct NexusHash NexusHash; /* Note, for now this is a stub, later it will be a hash. */
+
+/* ---------------------------------------------------------------------------- */
+/* IDs                                                                          */
+/* ---------------------------------------------------------------------------- */
+
+typedef struct NexusUUID NexusUUID;
