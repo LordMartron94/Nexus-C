@@ -172,6 +172,17 @@ void nexus_debug_mem_log_callback_set(NexusDebugMemLogCallback *callback, void *
     n_alloc_mutex_unlock(n_alloc_mutex);
 }
 
+boolean nexus_debug_mem_log_callback_installed_get(void) {
+  boolean installed;
+
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_lock(n_alloc_mutex);
+  installed = n_mem_log_callback != NULL ? TRUE : FALSE;
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_unlock(n_alloc_mutex);
+  return installed;
+}
+
 void nexus_debug_mem_reset(void) {
   unsigned int i;
 

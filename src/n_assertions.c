@@ -10,6 +10,10 @@ void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, v
   n_user_data    = user_data;
 }
 
+boolean nexus_assertions_error_callback_installed_get(void) {
+  return n_error_report != NULL;
+}
+
 #define NEXUS_ASSERTION_FAILURE_REPORT_MAX 500
 
 static void nexus_assertions_failure_report_emit(const char *expression, const char *message, const char *file, uint32 line) {

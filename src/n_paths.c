@@ -427,4 +427,29 @@ void nexus_paths_path_walk(NexusPath path, NexusPathWalkCallback *callback, void
   closedir(dir);
 }
 
+boolean nexus_paths_path_is_within_directory(NexusPath candidate, NexusPath boundary_directory) {
+  NexusPath candidate_absolute;
+  NexusPath boundary_absolute;
+  uint16    index;
+
+  candidate_absolute  = nexus_paths_path_relative_to_absolute(candidate);
+  boundary_absolute   = nexus_paths_path_relative_to_absolute(boundary_directory);
+
+  if (boundary_absolute.length > candidate_absolute.length) {
+    return FALSE;
+  }
+
+  for (index = 0; index < boundary_absolute.length; index++) {
+    if (candidate_absolute.buffer[index] != boundary_absolute.buffer[index]) {
+      return FALSE;
+    }
+  }
+
+  if (candidate_absolute.length == boundary_absolute.length) {
+    return TRUE;
+  }
+
+  return nexus_paths_path_is_separator(candidate_absolute.buffer[boundary_absolute.length]);
+}
+
 #endif

@@ -65,6 +65,11 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #  endif
 #endif /* PLATFORM DETECTION */
 
+#if defined(NEXUS_PLATFORM_POSIX)
+#  ifndef _DEFAULT_SOURCE
+#    define _DEFAULT_SOURCE
+#  endif
+#endif
 
 #ifndef NEXUS_ARCHITECTURES
 #  define NEXUS_ARCHITECTURES
@@ -569,6 +574,11 @@ logging are not logged). Thread-safe when initialized via nexus_debug_mem_thread
 extern void nexus_debug_mem_log_callback_set(NexusDebugMemLogCallback *callback, void *user_data);
 
 /*
+nexus_debug_mem_log_callback_installed_get returns TRUE when a memory log callback is registered.
+*/
+extern boolean nexus_debug_mem_log_callback_installed_get(void);
+
+/*
 nexus_debug_mem_malloc replaces malloc when NEXUS_MEMORY_DEBUG_ENABLED is set.
 Allocates size bytes plus guard padding, records file and line, and returns the user pointer.
 Returns NULL on failure. When NEXUS_MEMORY_NULL_ALLOCATION_ERROR is defined, failure triggers
@@ -728,6 +738,7 @@ extern void exit_crash(uint32 status_code);
 #    define nexus_debug_mem_stack_pointer_set(n, m)
 #    define nexus_debug_mem_active(n)
 #    define nexus_debug_mem_log_callback_set(n, m)
+#    define nexus_debug_mem_log_callback_installed_get() FALSE
 #    define nexus_debug_mem_comment(n, m)
 #    define nexus_debug_mem_print(n)
 #    define nexus_debug_mem_summary_print()
@@ -1318,6 +1329,12 @@ Safe to use if the path is already relative.
 */
 extern NexusPath nexus_paths_path_absolute_to_relative(NexusPath path);
 
+/*
+nexus_paths_path_is_within_directory returns TRUE when candidate resolves to a path inside boundary_directory.
+Both paths are normalized to absolute form before comparison.
+*/
+extern boolean nexus_paths_path_is_within_directory(NexusPath candidate, NexusPath boundary_directory);
+
 /* ---------------------------------------------------------------------------- */
 /* ERRORS                                                                       */
 /* ---------------------------------------------------------------------------- */
@@ -1361,6 +1378,35 @@ Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL a
 buffer_max_length must be greater than zero.
 */
 extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
+
+/* ---------------------------------------------------------------------------- */
+/* ENVIRONMENT                                                                  */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_environment_variable_set sets or replaces an environment variable in the current process.
+*/
+extern NError nexus_environment_variable_set(const char *name, const char *value);
+
+/*
+nexus_environment_variable_get reads an environment variable into buffer.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_FILE_NOT_FOUND when the variable is absent.
+*/
+extern NError nexus_environment_variable_get(const char *name, char *buffer, uint_large buffer_max_length);
+
+/* ---------------------------------------------------------------------------- */
+/* PROCESS                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_process_replace replaces the current process image with executable_path.
+
+argv must be a NULL-terminated array whose first element is the executable path.
+When environment is NULL, the current process environment is inherited.
+This function does not return on success.
+*/
+extern NError nexus_process_replace(NexusPath executable_path, char *const *argv, char *const *environment);
 
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
@@ -1535,6 +1581,11 @@ typedef void ErrorMessageReportCallback(void *user_data, const char *message, co
 nexus_assertions_error_callback_set sets the callback used for reporting assertion failures.
 */
 extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
+
+/*
+nexus_assertions_error_callback_installed_get returns TRUE when an assertion failure callback is registered.
+*/
+extern boolean nexus_assertions_error_callback_installed_get(void);
 
 /*
 nexus_assertions_failure_report reports an assertion failure with a plain message string.
