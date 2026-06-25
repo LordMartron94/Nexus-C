@@ -75,6 +75,8 @@ static uint_large n_mem_stats_allocation_count      = 0;
 static uint_large n_mem_stats_free_count            = 0;
 static size_t n_mem_stats_largest_allocation    = 0;
 
+static NexusDebugMemMeasurementContext *n_mem_measurement_context = NULL;
+
 static void nexus_debug_mem_stats_on_alloc(size_t size);
 static void nexus_debug_mem_stats_on_free(size_t size);
 static void nexus_debug_mem_stats_reset(void);
@@ -92,6 +94,9 @@ static void nexus_debug_mem_stats_on_alloc(size_t size) {
     n_mem_stats_peak_live_bytes = n_mem_stats_live_bytes;
   if (n_mem_stats_live_block_count > n_mem_stats_peak_live_block_count)
     n_mem_stats_peak_live_block_count = n_mem_stats_live_block_count;
+
+  if (n_mem_measurement_context != NULL && size > n_mem_measurement_context->interval_largest_allocation_bytes)
+    n_mem_measurement_context->interval_largest_allocation_bytes = size;
 }
 
 static void nexus_debug_mem_stats_on_free(size_t size) {
@@ -194,6 +199,59 @@ void nexus_debug_mem_reset(void) {
     n_alloc_lines[i].freed     = 0;
   }
   nexus_debug_mem_stats_reset();
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_unlock(n_alloc_mutex);
+}
+
+static void nexus_debug_mem_summary_copy_unlocked(NexusDebugMemSummary *summary) {
+  summary->live_bytes               = n_mem_stats_live_bytes;
+  summary->peak_live_bytes          = n_mem_stats_peak_live_bytes;
+  summary->live_block_count         = n_mem_stats_live_block_count;
+  summary->peak_live_block_count    = n_mem_stats_peak_live_block_count;
+  summary->total_bytes_allocated    = n_mem_stats_total_bytes_allocated;
+  summary->total_bytes_freed        = n_mem_stats_total_bytes_freed;
+  summary->allocation_count         = n_mem_stats_allocation_count;
+  summary->free_count               = n_mem_stats_free_count;
+  summary->call_site_count          = n_alloc_line_count;
+  summary->largest_allocation_bytes = n_mem_stats_largest_allocation;
+}
+
+void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context) {
+  NexusDebugMemSummary summary;
+
+  if (context == NULL)
+    return;
+
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_lock(n_alloc_mutex);
+
+  nexus_debug_mem_summary_copy_unlocked(&summary);
+  context->baseline_allocation_count         = summary.allocation_count;
+  context->baseline_total_bytes_allocated    = summary.total_bytes_allocated;
+  context->interval_largest_allocation_bytes = 0;
+  n_mem_measurement_context                  = context;
+
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_unlock(n_alloc_mutex);
+}
+
+void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement) {
+  NexusDebugMemSummary summary;
+
+  if (context == NULL || measurement == NULL)
+    return;
+
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_lock(n_alloc_mutex);
+
+  nexus_debug_mem_summary_copy_unlocked(&summary);
+  measurement->allocation_count         = summary.allocation_count - context->baseline_allocation_count;
+  measurement->total_bytes_allocated    = summary.total_bytes_allocated - context->baseline_total_bytes_allocated;
+  measurement->largest_allocation_bytes = context->interval_largest_allocation_bytes;
+
+  if (n_mem_measurement_context == context)
+    n_mem_measurement_context = NULL;
+
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
 }
@@ -703,16 +761,7 @@ void nexus_debug_mem_summary_get(NexusDebugMemSummary *summary) {
     return;
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_lock(n_alloc_mutex);
-  summary->live_bytes               = n_mem_stats_live_bytes;
-  summary->peak_live_bytes          = n_mem_stats_peak_live_bytes;
-  summary->live_block_count         = n_mem_stats_live_block_count;
-  summary->peak_live_block_count    = n_mem_stats_peak_live_block_count;
-  summary->total_bytes_allocated    = n_mem_stats_total_bytes_allocated;
-  summary->total_bytes_freed        = n_mem_stats_total_bytes_freed;
-  summary->allocation_count         = n_mem_stats_allocation_count;
-  summary->free_count               = n_mem_stats_free_count;
-  summary->call_site_count          = n_alloc_line_count;
-  summary->largest_allocation_bytes = n_mem_stats_largest_allocation;
+  nexus_debug_mem_summary_copy_unlocked(summary);
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
 }

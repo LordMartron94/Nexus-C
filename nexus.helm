@@ -1,6 +1,6 @@
 entity nexus {
     kind = "lib"
-    use c_static_library {
+    use c_shared_library {
         params {
             SOURCE_FILES = [
                 glob("src", include="**/*.c", recursive=true),

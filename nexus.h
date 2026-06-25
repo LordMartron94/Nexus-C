@@ -657,6 +657,38 @@ memory or discarding tracked blocks. Use to ignore allocations made before a kno
 extern void nexus_debug_mem_reset(void);
 
 /*
+NexusDebugMemMeasurement holds allocation statistics for a single measurement interval.
+*/
+typedef struct NexusDebugMemMeasurement {
+  uint_large allocation_count;
+  uint_large total_bytes_allocated;
+  size_t     largest_allocation_bytes;
+} NexusDebugMemMeasurement;
+
+/*
+NexusDebugMemMeasurementContext stores a baseline captured by measurement begin.
+Pass the same context to measurement end to compute the interval delta.
+*/
+typedef struct NexusDebugMemMeasurementContext {
+  uint_large baseline_allocation_count;
+  uint_large baseline_total_bytes_allocated;
+  size_t     interval_largest_allocation_bytes;
+} NexusDebugMemMeasurementContext;
+
+/*
+nexus_debug_mem_measurement_begin snapshots current allocation statistics into context.
+Global leak tracking is not reset; only the interval delta is reported by measurement end.
+context must not be NULL.
+*/
+extern void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context);
+
+/*
+nexus_debug_mem_measurement_end writes allocation statistics for the interval since begin.
+measurement and context must not be NULL. Pair with nexus_debug_mem_measurement_begin.
+*/
+extern void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement);
+
+/*
 nexus_debug_mem_consumption returns the sum of sizes for all currently tracked live allocations.
 Thread-safe when initialized via nexus_debug_mem_thread_safe_init.
 */
