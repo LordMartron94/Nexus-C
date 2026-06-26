@@ -1123,6 +1123,14 @@ dest, src must not be NULL and dest_max_len must be greater than zero.
 extern void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src);
 
 /*
+nexus_strings_string_append appends src to dest with bounded null-terminated concatenation.
+
+When the combined string does not fit, dest is truncated and null-terminated.
+Returns TRUE when the full suffix was appended.
+*/
+extern boolean nexus_strings_string_append(char *dest, uint_large dest_max_len, const char *src);
+
+/*
 nexus_strings_string_copy_exact copies src into dest when the full string fits.
 
 If src would require more than dest_max_len characters including the null terminator,
@@ -1262,6 +1270,151 @@ Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when s
 not numeric, or outside the int64 range.
 */
 extern NError nexus_strings_string_parse_int64(const char *string, int64 *out_value);
+
+/*
+nexus_strings_string_parse_f_real parses a floating-point string using the active C numeric locale.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when parsing fails.
+Callers that require a stable radix should pair this with nexus_locale_numeric_c_push and nexus_locale_numeric_c_pop.
+*/
+extern NError nexus_strings_string_parse_real32(const char *string, real32 *out_value);
+
+/*
+nexus_strings_string_parse_real64 parses a 64-bit floating-point string using the active C numeric locale.
+*/
+extern NError nexus_strings_string_parse_real64(const char *string, real64 *out_value);
+
+/*
+nexus_strings_string_parse_f_real parses the configured f_real string using the active C numeric locale.
+*/
+extern NError nexus_strings_string_parse_f_real(const char *string, f_real *out_value);
+
+/*
+nexus_strings_string_parse_hex_uint8 parses an unsigned hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_uint8(const char *string, uint8 *out_value);
+
+/*
+nexus_strings_string_parse_hex_uint16 parses an unsigned hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_uint16(const char *string, uint16 *out_value);
+
+/*
+nexus_strings_string_parse_hex_uint32 parses an unsigned hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_uint32(const char *string, uint32 *out_value);
+
+/*
+nexus_strings_string_parse_hex_uint64 parses an unsigned hexadecimal string into out_value.
+
+Accepts an optional 0x or 0X prefix. Returns NEXUS_ERROR_INVALID_ARGUMENT on empty or invalid input.
+*/
+extern NError nexus_strings_string_parse_hex_uint64(const char *string, uint64 *out_value);
+
+/*
+nexus_strings_string_parse_hex_int8 parses a signed hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_int8(const char *string, int8 *out_value);
+
+/*
+nexus_strings_string_parse_hex_int16 parses a signed hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_int16(const char *string, int16 *out_value);
+
+/*
+nexus_strings_string_parse_hex_int32 parses a signed hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_int32(const char *string, int32 *out_value);
+
+/*
+nexus_strings_string_parse_hex_int64 parses a signed hexadecimal string into out_value.
+*/
+extern NError nexus_strings_string_parse_hex_int64(const char *string, int64 *out_value);
+
+/*
+nexus_strings_string_format_hex_uint8 formats value as a lowercase hexadecimal string with 0x prefix.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_uint8(char *string, uint_large max_string_length, uint8 value);
+
+/*
+nexus_strings_string_format_hex_uint16 formats value as a lowercase hexadecimal string with 0x prefix.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_uint16(char *string, uint_large max_string_length, uint16 value);
+
+/*
+nexus_strings_string_format_hex_uint32 formats value as a lowercase hexadecimal string with 0x prefix.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_uint32(char *string, uint_large max_string_length, uint32 value);
+
+/*
+nexus_strings_string_format_hex_uint64 formats value as a lowercase hexadecimal string with 0x prefix.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_uint64(char *string, uint_large max_string_length, uint64 value);
+
+/*
+nexus_strings_string_format_hex_f_real_bits formats the IEEE-754 bit pattern of value as hexadecimal text.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_f_real_bits(char *string, uint_large max_string_length, f_real value);
+
+/*
+nexus_strings_string_format_hex_real32_bits formats the IEEE-754 bit pattern of value as hexadecimal text.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_real32_bits(char *string, uint_large max_string_length, real32 value);
+
+/*
+nexus_strings_string_format_hex_real64_bits formats the IEEE-754 bit pattern of value as hexadecimal text.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_hex_real64_bits(char *string, uint_large max_string_length, real64 value);
+
+/*
+nexus_strings_string_find locates the first occurrence of needle inside haystack.
+
+When found, writes the pointer to the match into out_position when out_position is not NULL, and returns TRUE. Otherwise returns FALSE.
+*/
+extern boolean nexus_strings_string_find(const char *haystack, const char *needle, const char **out_position);
+
+/*
+nexus_strings_string_split_on_first_delimiter splits string at the first delimiter occurrence.
+
+Copies the left and right segments into the provided buffers. Returns NEXUS_ERROR_INVALID_ARGUMENT when
+delimiter is absent or either segment does not fit.
+*/
+extern NError nexus_strings_string_split_on_first_delimiter(const char *string, char delimiter, char *left_buffer, uint_large left_max_length,
+                                                            char *right_buffer, uint_large right_max_length);
+
+/*
+nexus_strings_string_read_word skips leading whitespace, copies the next token into buffer, and advances cursor.
+
+Returns NEXUS_ERROR_NONE when a token is read. Returns NEXUS_ERROR_INVALID_ARGUMENT when cursor is NULL,
+buffer is NULL, or no token remains.
+*/
+extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, uint_large buffer_max_length);
+
+/* ---------------------------------------------------------------------------- */
+/* LOCALE                                                                       */
+/* ---------------------------------------------------------------------------- */
+
+#ifndef NEXUS_LOCALE_NUMERIC_BUFFER_LENGTH
+#  define NEXUS_LOCALE_NUMERIC_BUFFER_LENGTH 64
+#endif
+
+/*
+NexusLocaleNumericScope stores the previous LC_NUMERIC locale while the C locale is active.
+*/
+typedef struct NexusLocaleNumericScope {
+  char    previous_locale[NEXUS_LOCALE_NUMERIC_BUFFER_LENGTH];
+  boolean active;
+} NexusLocaleNumericScope;
+
+/*
+nexus_locale_numeric_c_push switches LC_NUMERIC to the C locale and records the previous setting in scope.
+*/
+extern void nexus_locale_numeric_c_push(NexusLocaleNumericScope *scope);
+
+/*
+nexus_locale_numeric_c_pop restores LC_NUMERIC from scope when nexus_locale_numeric_c_push succeeded.
+*/
+extern void nexus_locale_numeric_c_pop(NexusLocaleNumericScope *scope);
 
 /* ---------------------------------------------------------------------------- */
 /* TIME                                                                         */
@@ -1463,6 +1616,25 @@ This safely intercepts the OS timezone and DST rules without destroying the
 mathematical integrity of the underlying integer.
 */
 extern NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time);
+
+/*
+nexus_time_from_local_datetime converts a localized Human Time presentation structure into UTC epoch time.
+
+date_time is interpreted in the current local timezone using the platform calendar rules.
+*/
+extern NexusTime nexus_time_from_local_datetime(NexusDateTime date_time);
+
+/*
+nexus_time_datetime_parse parses a local calendar timestamp string produced by nexus_time_datetime_format.
+
+Returns TRUE when the string matches YYYY-MM-DD HH:MM:SS[.nnnnnnnnn].
+*/
+extern boolean nexus_time_datetime_parse(const char *string, NexusDateTime *out_date_time);
+
+/*
+nexus_time_from_local_datetime_string parses a local calendar timestamp string into UTC epoch time.
+*/
+extern boolean nexus_time_from_local_datetime_string(const char *string, NexusTime *out_time);
 
 /*
 nexus_time_duration_format writes duration as a human-readable interval (ns, us, ms, s).
@@ -1743,6 +1915,15 @@ Writes the number of bytes read to out_bytes_read. A short read at EOF is not an
 extern NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length,
                                          uint_large *out_bytes_read);
 
+/*
+nexus_filesystem_file_read_line reads one line from an opened text file into buffer.
+
+The line terminator is not copied. A short read at EOF returns the bytes read with NEXUS_ERROR_NONE.
+Returns NEXUS_ERROR_INVALID_ARGUMENT when buffer_max_length is zero.
+*/
+extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length,
+                                              uint_large *out_bytes_read);
+
 /* ---------------------------------------------------------------------------- */
 /* ASSERTIONS                                                                   */
 /* ---------------------------------------------------------------------------- */
@@ -1967,6 +2148,46 @@ extern real32 nexus_bits_real32_from_bytes_msb(const byte *bytes);
 nexus_bits_real64_from_bytes_msb decodes a 64-bit IEEE-754 double from 8 bytes, big-endian.
 */
 extern real64 nexus_bits_real64_from_bytes_msb(const byte *bytes);
+
+/*
+nexus_bits_uint32_from_real32 reinterprets a 32-bit float as its IEEE-754 bit pattern.
+*/
+extern uint32 nexus_bits_uint32_from_real32(real32 value);
+
+/*
+nexus_bits_real32_from_uint32 reinterprets a 32-bit bit pattern as IEEE-754 float.
+*/
+extern real32 nexus_bits_real32_from_uint32(uint32 bits);
+
+/*
+nexus_bits_uint64_from_real64 reinterprets a 64-bit float as its IEEE-754 bit pattern.
+*/
+extern uint64 nexus_bits_uint64_from_real64(real64 value);
+
+/*
+nexus_bits_real64_from_uint64 reinterprets a 64-bit bit pattern as IEEE-754 double.
+*/
+extern real64 nexus_bits_real64_from_uint64(uint64 bits);
+
+/*
+nexus_bits_uint32_from_f_real reinterprets f_real as its IEEE-754 bit pattern.
+*/
+extern uint32 nexus_bits_uint32_from_f_real(f_real value);
+
+/*
+nexus_bits_uint64_from_f_real reinterprets f_real as its IEEE-754 bit pattern.
+*/
+extern uint64 nexus_bits_uint64_from_f_real(f_real value);
+
+/*
+nexus_bits_f_real_from_uint32 reinterprets a 32-bit bit pattern as f_real.
+*/
+extern f_real nexus_bits_f_real_from_uint32(uint32 bits);
+
+/*
+nexus_bits_f_real_from_uint64 reinterprets a 64-bit bit pattern as f_real.
+*/
+extern f_real nexus_bits_f_real_from_uint64(uint64 bits);
 
 /* ---------------------------------------------------------------------------- */
 /* HASHING                                                                      */

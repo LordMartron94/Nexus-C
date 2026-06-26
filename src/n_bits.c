@@ -125,3 +125,63 @@ real64 nexus_bits_real64_from_bytes_msb(const byte *bytes) {
   NEXUS_ASSERT_DEBUG(bytes != NULL);
   return n_internal_real64_from_bits(n_internal_uint64_from_bytes_msb(bytes));
 }
+
+uint32 nexus_bits_uint32_from_real32(real32 value) {
+  union {
+    real32     value;
+    uint32 bit_pattern;
+  } converter;
+
+  converter.value = value;
+  return converter.bit_pattern;
+}
+
+real32 nexus_bits_real32_from_uint32(uint32 bits) {
+  return n_internal_real32_from_bits(bits);
+}
+
+uint64 nexus_bits_uint64_from_real64(real64 value) {
+  union {
+    real64     value;
+    uint64 bit_pattern;
+  } converter;
+
+  converter.value = value;
+  return converter.bit_pattern;
+}
+
+real64 nexus_bits_real64_from_uint64(uint64 bits) {
+  return n_internal_real64_from_bits(bits);
+}
+
+uint32 nexus_bits_uint32_from_f_real(f_real value) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return (uint32)nexus_bits_uint64_from_real64((real64)value);
+#else
+  return nexus_bits_uint32_from_real32((real32)value);
+#endif
+}
+
+uint64 nexus_bits_uint64_from_f_real(f_real value) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return nexus_bits_uint64_from_real64((real64)value);
+#else
+  return (uint64)nexus_bits_uint32_from_real32((real32)value);
+#endif
+}
+
+f_real nexus_bits_f_real_from_uint32(uint32 bits) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return (f_real)nexus_bits_real64_from_uint64((uint64)bits);
+#else
+  return (f_real)nexus_bits_real32_from_uint32(bits);
+#endif
+}
+
+f_real nexus_bits_f_real_from_uint64(uint64 bits) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return (f_real)nexus_bits_real64_from_uint64(bits);
+#else
+  return (f_real)nexus_bits_real32_from_uint32((uint32)bits);
+#endif
+}

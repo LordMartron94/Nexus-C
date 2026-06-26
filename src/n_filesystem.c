@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include "../nexus.h"
 #include "./n_internal.h"
@@ -162,6 +163,36 @@ NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, ui
 
   if (ferror(file) != 0)
     return nexus_errors_from_errno();
+
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length, uint_large *out_bytes_read) {
+  FILE *file;
+
+  NEXUS_ASSERT_DEBUG(file_handle != NULL);
+  NEXUS_ASSERT_DEBUG(buffer != NULL);
+  NEXUS_ASSERT_DEBUG(out_bytes_read != NULL);
+
+  if (buffer_max_length == 0) {
+    *out_bytes_read = 0;
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  file = (FILE *)file_handle;
+  if (fgets(buffer, (int)buffer_max_length, file) == NULL) {
+    *out_bytes_read = 0;
+    if (feof(file) != 0) {
+      return NEXUS_ERROR_NONE;
+    }
+    return nexus_errors_from_errno();
+  }
+
+  *out_bytes_read = nexus_strings_string_length(buffer);
+  if (*out_bytes_read > 0 && buffer[*out_bytes_read - 1] == '\n') {
+    buffer[*out_bytes_read - 1] = '\0';
+    (*out_bytes_read)--;
+  }
 
   return NEXUS_ERROR_NONE;
 }

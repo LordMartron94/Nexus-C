@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <stdarg.h>
 #include "../nexus.h"
 #include <stb_sprintf.h>
@@ -64,16 +65,15 @@ NexusStringFormatResult nexus_strings_vstring_format(char *string, uint_large ma
   NEXUS_ASSERT_DEBUG(format != NULL);
   count = p_string_format_max_length_as_count(max_string_length);
 
-  stb_result = stbsp_vsnprintf(NULL, 0, format, args);
+  string[0]  = '\0';
+  stb_result = stbsp_vsnprintf(string, count, format, args);
   NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
   required_length = (uint_large)stb_result;
   if (required_length >= max_string_length) {
+    string[0] = '\0';
     return p_string_format_result_create(0, required_length, TRUE, FALSE);
   }
-
-  stb_result = stbsp_vsnprintf(string, count, format, args);
-  NEXUS_ASSERT_DEBUG(stb_result >= 0);
 
   return p_string_format_result_create(required_length, required_length, FALSE, TRUE);
 }
@@ -213,6 +213,28 @@ boolean nexus_strings_string_starts_with(const char *string, const char *prefix)
 
 void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src) {
   (void)nexus_strings_string_copy_with_truncation(dest, dest_max_len, src);
+}
+
+boolean nexus_strings_string_append(char *dest, uint_large dest_max_len, const char *src) {
+  uint_large cursor;
+  uint_large remaining_length;
+  NexusStringFormatResult copy_result;
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(dest_max_len > 0);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  cursor = nexus_strings_string_length(dest);
+  if (cursor >= dest_max_len) {
+    if (dest_max_len > 0) {
+      dest[dest_max_len - 1] = '\0';
+    }
+    return FALSE;
+  }
+
+  remaining_length = dest_max_len - cursor;
+  copy_result      = nexus_strings_string_copy_with_truncation(dest + cursor, remaining_length, src);
+  return copy_result.success == TRUE && copy_result.truncated == FALSE;
 }
 
 NexusStringFormatResult nexus_strings_string_copy_exact(char *dest, uint_large dest_max_len, const char *src) {
@@ -485,4 +507,374 @@ NError nexus_strings_string_parse_int32(const char *string, int32 *out_value) {
 
 NError nexus_strings_string_parse_int64(const char *string, int64 *out_value) {
   return nexus_strings_string_parse_signed_decimal(string, INT64_MIN_VAL, INT64_MAX_VAL, out_value);
+}
+
+boolean nexus_strings_string_find(const char *haystack, const char *needle, const char **out_position) {
+  uint_large haystack_length;
+  uint_large needle_length;
+  uint_large haystack_index;
+  uint_large needle_index;
+
+  if (haystack == NULL || needle == NULL) {
+    return FALSE;
+  }
+
+  if (out_position != NULL) {
+    *out_position = NULL;
+  }
+  haystack_length = nexus_strings_string_length(haystack);
+  needle_length   = nexus_strings_string_length(needle);
+
+  if (needle_length == 0) {
+    if (out_position != NULL) {
+      *out_position = haystack;
+    }
+    return TRUE;
+  }
+
+  if (needle_length > haystack_length) {
+    return FALSE;
+  }
+
+  for (haystack_index = 0; haystack_index + needle_length <= haystack_length; haystack_index++) {
+    for (needle_index = 0; needle_index < needle_length; needle_index++) {
+      if (haystack[haystack_index + needle_index] != needle[needle_index]) {
+        break;
+      }
+    }
+
+    if (needle_index == needle_length) {
+      if (out_position != NULL) {
+        *out_position = haystack + haystack_index;
+      }
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+NError nexus_strings_string_split_on_first_delimiter(const char *string, char delimiter, char *left_buffer, uint_large left_max_length,
+                                                       char *right_buffer, uint_large right_max_length) {
+  uint_large index;
+  uint_large left_length;
+
+  if (string == NULL || left_buffer == NULL || right_buffer == NULL || left_max_length == 0 || right_max_length == 0) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  left_length = 0;
+  for (index = 0; string[index] != '\0'; index++) {
+    if (string[index] == delimiter) {
+      if (left_length == 0 || string[index + 1] == '\0') {
+        return NEXUS_ERROR_INVALID_ARGUMENT;
+      }
+
+      left_buffer[left_length] = '\0';
+      if (nexus_strings_string_copy_with_truncation(right_buffer, right_max_length, string + index + 1).success == FALSE) {
+        return NEXUS_ERROR_INVALID_ARGUMENT;
+      }
+
+      return NEXUS_ERROR_NONE;
+    }
+
+    if (left_length + 1 >= left_max_length) {
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+
+    left_buffer[left_length] = string[index];
+    left_length++;
+  }
+
+  return NEXUS_ERROR_INVALID_ARGUMENT;
+}
+
+NError nexus_strings_string_read_word(const char **cursor, char *buffer, uint_large buffer_max_length) {
+  const char *source;
+  uint_large  write_index;
+
+  if (cursor == NULL || *cursor == NULL || buffer == NULL || buffer_max_length == 0) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  source = *cursor;
+  while (source[0] == ' ' || source[0] == '\t') {
+    source++;
+  }
+
+  if (source[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  write_index = 0;
+  while (source[write_index] != '\0' && source[write_index] != ' ' && source[write_index] != '\t') {
+    if (write_index + 1 >= buffer_max_length) {
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+    buffer[write_index] = source[write_index];
+    write_index++;
+  }
+
+  buffer[write_index] = '\0';
+  source              = source + write_index;
+  while (source[0] == ' ' || source[0] == '\t') {
+    source++;
+  }
+
+  *cursor = source;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_uint64(const char *string, uint64 *out_value) {
+  uint_large index;
+  uint64     parsed_value;
+  uint64     digit_value;
+
+  if (string == NULL || out_value == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  if (string[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  index = 0;
+  if (string[0] == '0' && (string[1] == 'x' || string[1] == 'X')) {
+    index = 2;
+  }
+
+  if (string[index] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  parsed_value = 0;
+  for (; string[index] != '\0'; index++) {
+    if (string[index] >= '0' && string[index] <= '9') {
+      digit_value = (uint64)(string[index] - '0');
+    } else if (string[index] >= 'a' && string[index] <= 'f') {
+      digit_value = (uint64)(unsigned char)string[index] - (uint64)(unsigned char)'a' + 10ULL;
+    } else if (string[index] >= 'A' && string[index] <= 'F') {
+      digit_value = (uint64)(unsigned char)string[index] - (uint64)(unsigned char)'A' + 10ULL;
+    } else {
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (parsed_value > (UINT64_MAX_VAL >> 4)) {
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+
+    parsed_value = (parsed_value << 4) | digit_value;
+  }
+
+  *out_value = parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_uint8(const char *string, uint8 *out_value) {
+  uint64     parsed_value;
+  NError     status;
+
+  status = nexus_strings_string_parse_hex_uint64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value > (uint64)UINT8_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (uint8)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_uint16(const char *string, uint16 *out_value) {
+  uint64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_hex_uint64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value > (uint64)UINT16_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (uint16)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_uint32(const char *string, uint32 *out_value) {
+  uint64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_hex_uint64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value > (uint64)UINT32_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (uint32)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_int64(const char *string, int64 *out_value) {
+  uint64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_hex_uint64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value > (uint64)INT64_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (int64)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_int32(const char *string, int32 *out_value) {
+  int64  parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_hex_int64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value < (int64)INT32_MIN_VAL || parsed_value > (int64)INT32_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (int32)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_int16(const char *string, int16 *out_value) {
+  int64  parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_hex_int64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value < (int64)INT16_MIN_VAL || parsed_value > (int64)INT16_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (int16)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_hex_int8(const char *string, int8 *out_value) {
+  int64  parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_hex_int64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (parsed_value < (int64)INT8_MIN_VAL || parsed_value > (int64)INT8_MAX_VAL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (int8)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_real64(const char *string, real64 *out_value) {
+  char       *end_pointer;
+  const char *parse_source;
+  double      parsed_value;
+
+  if (string == NULL || out_value == NULL || string[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  parse_source = string;
+  parsed_value = strtod(parse_source, &end_pointer);
+  if (end_pointer == parse_source) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_value = (real64)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_real32(const char *string, real32 *out_value) {
+  real64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_real64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (real32)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_f_real(const char *string, f_real *out_value) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  real64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_real64(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (f_real)parsed_value;
+  return NEXUS_ERROR_NONE;
+#else
+  real32 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_real32(string, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (f_real)parsed_value;
+  return NEXUS_ERROR_NONE;
+#endif
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_uint8(char *string, uint_large max_string_length, uint8 value) {
+  return nexus_strings_string_format(string, max_string_length, "0x%02x", (unsigned)value);
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_uint16(char *string, uint_large max_string_length, uint16 value) {
+  return nexus_strings_string_format(string, max_string_length, "0x%04x", (unsigned)value);
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_uint32(char *string, uint_large max_string_length, uint32 value) {
+  return nexus_strings_string_format(string, max_string_length, "0x%08x", (unsigned)value);
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_uint64(char *string, uint_large max_string_length, uint64 value) {
+  return nexus_strings_string_format(string, max_string_length, "0x%016llx", (unsigned long long)value);
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_real32_bits(char *string, uint_large max_string_length, real32 value) {
+  return nexus_strings_string_format_hex_uint32(string, max_string_length, nexus_bits_uint32_from_real32(value));
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_real64_bits(char *string, uint_large max_string_length, real64 value) {
+  return nexus_strings_string_format_hex_uint64(string, max_string_length, nexus_bits_uint64_from_real64(value));
+}
+
+NexusStringFormatResult nexus_strings_string_format_hex_f_real_bits(char *string, uint_large max_string_length, f_real value) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return nexus_strings_string_format_hex_real64_bits(string, max_string_length, (real64)value);
+#else
+  return nexus_strings_string_format_hex_real32_bits(string, max_string_length, (real32)value);
+#endif
 }

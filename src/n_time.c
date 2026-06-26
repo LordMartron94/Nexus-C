@@ -3,6 +3,7 @@
 #endif
 
 #include "../nexus.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -321,6 +322,93 @@ NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time) {
   date_time.is_dst = (int8)tm_info.tm_isdst;
 
   return date_time;
+}
+
+NexusTime nexus_time_from_local_datetime(NexusDateTime date_time) {
+  NexusTime   utc_time;
+  struct tm   tm_info;
+  time_t      timer_seconds;
+#if NEXUS_PLATFORM_WINDOWS
+  __time64_t t64;
+#endif
+
+  utc_time.time         = 0;
+  utc_time.clock_origin = NCO_REAL;
+  utc_time.precision    = date_time.precision;
+
+  tm_info.tm_sec   = (int)date_time.second;
+  tm_info.tm_min   = (int)date_time.minute;
+  tm_info.tm_hour  = (int)date_time.hour;
+  tm_info.tm_mday  = (int)date_time.day;
+  tm_info.tm_mon   = (int)date_time.month - 1;
+  tm_info.tm_year  = (int)date_time.year - 1900;
+  tm_info.tm_wday  = 0;
+  tm_info.tm_yday  = 0;
+  tm_info.tm_isdst = -1;
+
+#if NEXUS_PLATFORM_WINDOWS
+  t64 = _mktime64(&tm_info);
+  if (t64 == (__time64_t)-1) {
+    return utc_time;
+  }
+  timer_seconds = (time_t)t64;
+#else
+  timer_seconds = mktime(&tm_info);
+  if (timer_seconds == (time_t)-1) {
+    return utc_time;
+  }
+#endif
+
+  utc_time.time = (uint64)timer_seconds * NEXUS_NANOSECONDS_PER_SECOND + (uint64)date_time.nanosecond;
+  return utc_time;
+}
+
+boolean nexus_time_datetime_parse(const char *string, NexusDateTime *out_date_time) {
+  int parsed_fields;
+  int year;
+  unsigned int month;
+  unsigned int day;
+  unsigned int hour;
+  unsigned int minute;
+  unsigned int second;
+  unsigned int nanosecond;
+
+  if (string == NULL || out_date_time == NULL) {
+    return FALSE;
+  }
+
+  nanosecond = 0;
+
+  parsed_fields = sscanf(string, "%d-%u-%u %u:%u:%u.%u", &year, &month, &day, &hour, &minute, &second, &nanosecond);
+  if (parsed_fields < 6) {
+    return FALSE;
+  }
+
+  out_date_time->year       = (int32)year;
+  out_date_time->month      = (uint8)month;
+  out_date_time->day        = (uint8)day;
+  out_date_time->hour       = (uint8)hour;
+  out_date_time->minute     = (uint8)minute;
+  out_date_time->second     = (uint8)second;
+  out_date_time->nanosecond = nanosecond;
+  out_date_time->precision  = NTP_NANOSECOND;
+  out_date_time->is_dst     = -1;
+  return TRUE;
+}
+
+boolean nexus_time_from_local_datetime_string(const char *string, NexusTime *out_time) {
+  NexusDateTime date_time;
+
+  if (string == NULL || out_time == NULL) {
+    return FALSE;
+  }
+
+  if (nexus_time_datetime_parse(string, &date_time) == FALSE) {
+    return FALSE;
+  }
+
+  *out_time = nexus_time_from_local_datetime(date_time);
+  return TRUE;
 }
 
 NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_string_length, NexusDuration duration) {
