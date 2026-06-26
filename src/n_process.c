@@ -37,7 +37,8 @@ static boolean nexus_process_windows_argument_needs_quotes(const char *argument)
   return FALSE;
 }
 
-static NError nexus_process_windows_command_line_append_character(char *buffer, uint_large buffer_max_length, uint_large *write_index, char character) {
+static NError nexus_process_windows_command_line_append_character(char *buffer, uint_large buffer_max_length, uint_large *write_index,
+                                                                  char character) {
   if (*write_index + 1 >= buffer_max_length) {
     return NEXUS_ERROR_INVALID_ARGUMENT;
   }
@@ -146,8 +147,8 @@ static NError nexus_process_windows_command_line_build(char *const *argv, int32 
     return NEXUS_ERROR_INVALID_ARGUMENT;
   }
 
-  write_index   = 0;
-  buffer[0]     = '\0';
+  write_index    = 0;
+  buffer[0]      = '\0';
   argument_index = start_index;
   while (argv[argument_index] != NULL) {
     if (argument_index > start_index) {
@@ -189,12 +190,12 @@ NError nexus_process_replace(NexusPath executable_path, char *const *argv, char 
 
 NError nexus_process_spawn_wait(NexusPath executable_path, char *const *argv, char *const *environment, NexusProcessSpawnResult *result) {
 #if defined(NEXUS_PLATFORM_WINDOWS)
-  STARTUPINFOA         startup_info;
-  PROCESS_INFORMATION  process_info;
-  char                 command_line[4096];
-  DWORD                wait_result;
-  DWORD                exit_code;
-  NError               status;
+  STARTUPINFOA        startup_info;
+  PROCESS_INFORMATION process_info;
+  char                command_line[4096];
+  DWORD               wait_result;
+  DWORD               exit_code;
+  NError              status;
 
   NEXUS_ASSERT_DEBUG(executable_path.buffer[0] != '\0');
   NEXUS_ASSERT_DEBUG(argv != NULL);
@@ -208,8 +209,8 @@ NError nexus_process_spawn_wait(NexusPath executable_path, char *const *argv, ch
   memset(&startup_info, 0, NEXUS_SIZEOF(startup_info));
   startup_info.cb = NEXUS_SIZEOF(startup_info);
 
-  if (CreateProcessA(executable_path.buffer, command_line, NULL, NULL, TRUE, 0,
-                     environment != NULL ? (LPVOID)environment : NULL, NULL, &startup_info, &process_info) == 0) {
+  if (CreateProcessA(executable_path.buffer, command_line, NULL, NULL, TRUE, 0, environment != NULL ? (LPVOID)environment : NULL, NULL, &startup_info,
+                     &process_info) == 0) {
     return NEXUS_ERROR_IO;
   }
 

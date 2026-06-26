@@ -67,7 +67,7 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 
 #if defined(NEXUS_PLATFORM_POSIX)
 #  ifndef _DEFAULT_SOURCE
-#    define _DEFAULT_SOURCE
+#    define _DEFAULT_SOURCE /* NOLINT */
 #  endif
 #endif
 
@@ -352,6 +352,51 @@ typedef float f_real;
 #  define F_REAL_MAX REAL32_MAX_VAL
 #  define F_REAL_MIN REAL32_MIN_VAL
 #endif
+
+/* ---------------------------------------------------------------------------- */
+/* ERRORS                                                                       */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NError is the universal 32-bit error format shared across all libraries.
+
+The high 16 bits encode a two-character ASCII facility tag. The low 16 bits
+encode a facility-specific error code. NEXUS_ERROR_NONE (0) is success.
+
+Use nexus_errors_message_write to obtain a human-readable description of a
+NError value. Nexus only formats messages for its own 'N' 'X' facility errors.
+*/
+typedef uint32 NError;
+
+#define NEXUS_ERROR_NONE ((NError)0)
+
+/*
+NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NError.
+*/
+#define NEXUS_ERROR_MAKE(c1, c2, code) (((((uint32)(c1)) << 24) | (((uint32)(c2)) << 16)) | ((uint16)(code)))
+
+#define NEXUS_ERROR_FACILITY_BYTE_1(err) ((char)(((err) >> 24) & 0xFF))
+#define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
+#define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
+
+#define NEXUS_ERROR_FILE_NOT_FOUND           NEXUS_ERROR_MAKE('N', 'X', 1)
+#define NEXUS_ERROR_PERMISSION_DENIED        NEXUS_ERROR_MAKE('N', 'X', 2)
+#define NEXUS_ERROR_ALREADY_EXISTS           NEXUS_ERROR_MAKE('N', 'X', 3)
+#define NEXUS_ERROR_DIR_NOT_EMPTY            NEXUS_ERROR_MAKE('N', 'X', 4)
+#define NEXUS_ERROR_DISK_FULL                NEXUS_ERROR_MAKE('N', 'X', 5)
+#define NEXUS_ERROR_INVALID_ARGUMENT         NEXUS_ERROR_MAKE('N', 'X', 6)
+#define NEXUS_ERROR_IO                       NEXUS_ERROR_MAKE('N', 'X', 7)
+#define NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE NEXUS_ERROR_MAKE('N', 'X', 8)
+
+/*
+nexus_errors_message_write copies a human-readable description of error into buffer,
+optionally prefixed with prefix.
+
+When prefix is NULL or an empty string, the message is written without a prefix.
+Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
+buffer_max_length must be greater than zero.
+*/
+extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
 
 /* ---------------------------------------------------------------------------- */
 /* REALS                                                                        */
@@ -856,50 +901,6 @@ It sets alpha to 255 as it is unused (meaning full opacity).
 This is strictly a utility function as you can just as well construct the struct directly.
 */
 extern NexusColorRGBA8 nexus_color_rgba8_create_rgb(uint8 red, uint8 green, uint8 blue);
-
-/* ---------------------------------------------------------------------------- */
-/* ERRORS                                                                       */
-/* ---------------------------------------------------------------------------- */
-
-/*
-NError is the universal 32-bit error format shared across all libraries.
-
-The high 16 bits encode a two-character ASCII facility tag. The low 16 bits
-encode a facility-specific error code. NEXUS_ERROR_NONE (0) is success.
-
-Use nexus_errors_message_write to obtain a human-readable description of a
-NError value. Nexus only formats messages for its own 'N' 'X' facility errors.
-*/
-typedef uint32 NError;
-
-#define NEXUS_ERROR_NONE ((NError)0)
-
-/*
-NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NError.
-*/
-#define NEXUS_ERROR_MAKE(c1, c2, code) (((((uint32)(c1)) << 24) | (((uint32)(c2)) << 16)) | ((uint16)(code)))
-
-#define NEXUS_ERROR_FACILITY_BYTE_1(err) ((char)(((err) >> 24) & 0xFF))
-#define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
-#define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
-
-#define NEXUS_ERROR_FILE_NOT_FOUND    NEXUS_ERROR_MAKE('N', 'X', 1)
-#define NEXUS_ERROR_PERMISSION_DENIED NEXUS_ERROR_MAKE('N', 'X', 2)
-#define NEXUS_ERROR_ALREADY_EXISTS    NEXUS_ERROR_MAKE('N', 'X', 3)
-#define NEXUS_ERROR_DIR_NOT_EMPTY     NEXUS_ERROR_MAKE('N', 'X', 4)
-#define NEXUS_ERROR_DISK_FULL         NEXUS_ERROR_MAKE('N', 'X', 5)
-#define NEXUS_ERROR_INVALID_ARGUMENT  NEXUS_ERROR_MAKE('N', 'X', 6)
-#define NEXUS_ERROR_IO                NEXUS_ERROR_MAKE('N', 'X', 7)
-
-/*
-nexus_errors_message_write copies a human-readable description of error into buffer,
-optionally prefixed with prefix.
-
-When prefix is NULL or an empty string, the message is written without a prefix.
-Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
-buffer_max_length must be greater than zero.
-*/
-extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
 
 /* ---------------------------------------------------------------------------- */
 /* TERMINAL                                                                     */
@@ -1978,3 +1979,80 @@ typedef struct NexusHash NexusHash; /* Note, for now this is a stub, later it wi
 /* ---------------------------------------------------------------------------- */
 
 typedef struct NexusUUID NexusUUID;
+
+/* ---------------------------------------------------------------------------- */
+/* Hardware                                                                     */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_hardware_cpu_clock_cycles_get retrieves the current CPU clock cycle count.
+
+The returned value is architecture-specific: x86 uses RDTSC, AArch64 uses the
+virtual counter (cntvct_el0), AArch32 uses the architected timer count, RISC-V
+uses rdcycle, PowerPC uses the time base, MIPS uses the coprocessor cycle count,
+and SPARC uses the tick register. Unsupported architectures return
+NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE. User-mode access may still require platform
+or kernel configuration on some targets.
+
+On success it sets the `cycle_count` pointer to the current cycle count.
+Returns NEXUS_ERROR_INVALID_ARGUMENT when cycle_count is NULL.
+On failure it returns an NError.
+*/
+extern NError nexus_hardware_cpu_clock_cycles_get(uint64 *cycle_count);
+
+/*
+nexus_hardware_voluntary_context_switches_get retrieves the cumulative voluntary context switch
+count for the current thread when supported, otherwise for the current process. On Windows this
+returns the current thread's cumulative context switch count via NtQuerySystemInformation because
+Windows does not expose the POSIX voluntary/involuntary split outside of ETW.
+
+Returns NEXUS_ERROR_INVALID_ARGUMENT when count is NULL.
+Returns NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE when the platform does not expose this counter.
+Returns NEXUS_ERROR_IO when the platform query fails.
+*/
+extern NError nexus_hardware_voluntary_context_switches_get(uint64 *count);
+
+/*
+nexus_hardware_involuntary_context_switches_get retrieves the cumulative involuntary context
+switch count for the current thread when supported, otherwise for the current process. This
+counter is not available on Windows outside of ETW.
+
+Returns NEXUS_ERROR_INVALID_ARGUMENT when count is NULL.
+Returns NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE when the platform does not expose this counter.
+Returns NEXUS_ERROR_IO when the platform query fails.
+*/
+extern NError nexus_hardware_involuntary_context_switches_get(uint64 *count);
+
+/*
+nexus_hardware_major_page_faults_get retrieves the cumulative major page fault count for the
+current thread when supported, otherwise for the current process. On Windows this maps to the
+current process hard fault count from NtQuerySystemInformation.
+
+Returns NEXUS_ERROR_INVALID_ARGUMENT when count is NULL.
+Returns NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE when the platform does not expose this counter.
+Returns NEXUS_ERROR_IO when the platform query fails.
+*/
+extern NError nexus_hardware_major_page_faults_get(uint64 *count);
+
+/*
+nexus_hardware_minor_page_faults_get retrieves the cumulative minor page fault count for the
+current thread when supported, otherwise for the current process. On Windows this maps to the
+process-wide cumulative page fault count from GetProcessMemoryInfo.
+
+Returns NEXUS_ERROR_INVALID_ARGUMENT when count is NULL.
+Returns NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE when the platform does not expose this counter.
+Returns NEXUS_ERROR_IO when the platform query fails.
+*/
+extern NError nexus_hardware_minor_page_faults_get(uint64 *count);
+
+/*
+nexus_hardware_cache_misses_get retrieves the cumulative hardware cache miss count for the
+current thread when supported. On Linux this uses perf_event_open to program the CPU PMU.
+User access may require permissive perf_event_paranoid sysctl settings.
+
+Returns NEXUS_ERROR_INVALID_ARGUMENT when count is NULL.
+Returns NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE when the platform does not expose this counter.
+Returns NEXUS_ERROR_PERMISSION_DENIED when the kernel denies PMU access.
+Returns NEXUS_ERROR_IO when the platform query fails.
+*/
+extern NError nexus_hardware_cache_misses_get(uint64 *count);

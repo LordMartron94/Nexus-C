@@ -19,6 +19,8 @@ static const char *n_internal_nexus_error_message_for_code(uint16 code) {
     return "invalid argument";
   case 7:
     return "I/O error";
+  case 8:
+    return "unsupported architecture for operation";
   default:
     return "unknown Nexus error";
   }
