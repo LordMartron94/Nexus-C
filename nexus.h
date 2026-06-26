@@ -286,6 +286,73 @@ Uses uint64 on all supported targets so epoch math is full-range on both 32-bit 
 */
 typedef uint64 timestamp;
 
+/*
+uint128 is a 128-bit unsigned integer stored as two 64-bit words.
+
+lo holds the least significant 64 bits. hi holds the most significant 64 bits.
+Arithmetic wraps modulo 2^128.
+*/
+typedef struct uint128 {
+  uint64 lo;
+  uint64 hi;
+} uint128;
+
+/*
+nexus_uint128_make constructs a 128-bit value from low and high words.
+*/
+extern uint128 nexus_uint128_make(uint64 lo, uint64 hi);
+
+/*
+nexus_uint128_zero returns zero.
+*/
+extern uint128 nexus_uint128_zero(void);
+
+/*
+nexus_uint128_add returns left + right modulo 2^128.
+*/
+extern uint128 nexus_uint128_add(uint128 left, uint128 right);
+
+/*
+nexus_uint128_xor returns the bitwise exclusive OR of left and right.
+*/
+extern uint128 nexus_uint128_xor(uint128 left, uint128 right);
+
+/*
+nexus_uint128_mul returns left * right modulo 2^128.
+*/
+extern uint128 nexus_uint128_mul(uint128 left, uint128 right);
+
+/*
+nexus_uint128_shift_right performs a logical right shift by shift bits.
+Shifts of 128 or more return zero.
+*/
+extern uint128 nexus_uint128_shift_right(uint128 value, uint32 shift);
+
+/*
+nexus_uint128_fold_to_uint64 folds a 128-bit value to 64 bits via hi ^ lo.
+*/
+extern uint64 nexus_uint128_fold_to_uint64(uint128 value);
+
+/*
+nexus_uint128_bytes_little_endian_write serializes value to 16 little-endian bytes.
+*/
+extern void nexus_uint128_bytes_little_endian_write(uint128 value, byte out_bytes[16]);
+
+/*
+nexus_uint128_bytes_little_endian_read deserializes 16 little-endian bytes into value.
+*/
+extern uint128 nexus_uint128_bytes_little_endian_read(const byte in_bytes[16]);
+
+/*
+nexus_uint128_bytes_big_endian_write serializes value to 16 big-endian bytes.
+*/
+extern void nexus_uint128_bytes_big_endian_write(uint128 value, byte out_bytes[16]);
+
+/*
+nexus_uint128_bytes_big_endian_read deserializes 16 big-endian bytes into value.
+*/
+extern uint128 nexus_uint128_bytes_big_endian_read(const byte in_bytes[16]);
+
 /* PRECISIONS */
 
 #ifndef NEXUS_FLOAT_DOUBLE_PRECISION
