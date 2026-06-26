@@ -858,6 +858,149 @@ This is strictly a utility function as you can just as well construct the struct
 extern NexusColorRGBA8 nexus_color_rgba8_create_rgb(uint8 red, uint8 green, uint8 blue);
 
 /* ---------------------------------------------------------------------------- */
+/* ERRORS                                                                       */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NError is the universal 32-bit error format shared across all libraries.
+
+The high 16 bits encode a two-character ASCII facility tag. The low 16 bits
+encode a facility-specific error code. NEXUS_ERROR_NONE (0) is success.
+
+Use nexus_errors_message_write to obtain a human-readable description of a
+NError value. Nexus only formats messages for its own 'N' 'X' facility errors.
+*/
+typedef uint32 NError;
+
+#define NEXUS_ERROR_NONE ((NError)0)
+
+/*
+NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NError.
+*/
+#define NEXUS_ERROR_MAKE(c1, c2, code) (((((uint32)(c1)) << 24) | (((uint32)(c2)) << 16)) | ((uint16)(code)))
+
+#define NEXUS_ERROR_FACILITY_BYTE_1(err) ((char)(((err) >> 24) & 0xFF))
+#define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
+#define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
+
+#define NEXUS_ERROR_FILE_NOT_FOUND    NEXUS_ERROR_MAKE('N', 'X', 1)
+#define NEXUS_ERROR_PERMISSION_DENIED NEXUS_ERROR_MAKE('N', 'X', 2)
+#define NEXUS_ERROR_ALREADY_EXISTS    NEXUS_ERROR_MAKE('N', 'X', 3)
+#define NEXUS_ERROR_DIR_NOT_EMPTY     NEXUS_ERROR_MAKE('N', 'X', 4)
+#define NEXUS_ERROR_DISK_FULL         NEXUS_ERROR_MAKE('N', 'X', 5)
+#define NEXUS_ERROR_INVALID_ARGUMENT  NEXUS_ERROR_MAKE('N', 'X', 6)
+#define NEXUS_ERROR_IO                NEXUS_ERROR_MAKE('N', 'X', 7)
+
+/*
+nexus_errors_message_write copies a human-readable description of error into buffer,
+optionally prefixed with prefix.
+
+When prefix is NULL or an empty string, the message is written without a prefix.
+Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
+buffer_max_length must be greater than zero.
+*/
+extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
+
+/* ---------------------------------------------------------------------------- */
+/* TERMINAL                                                                     */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusTerminalOutputCapabilities describes terminal-oriented output behavior for a file descriptor.
+*/
+typedef struct NexusTerminalOutputCapabilities {
+  boolean is_terminal;
+  boolean is_smart_terminal;
+  boolean color_disabled;
+  boolean color_forced;
+} NexusTerminalOutputCapabilities;
+
+/*
+NexusColorOutputCapability classifies the color fidelity supported for terminal output.
+*/
+typedef enum NexusColorOutputCapability {
+  NCOC_NONE = 0,
+  NCOC_ANSI,
+  NCOC_TRUECOLOR
+} NexusColorOutputCapability;
+
+/*
+nexus_terminal_color_output_capability_get maps terminal capabilities to a color output mode.
+*/
+extern NexusColorOutputCapability nexus_terminal_color_output_capability_get(const NexusTerminalOutputCapabilities *capabilities);
+
+/*
+nexus_terminal_output_capabilities_get inspects file_descriptor and environment variables.
+
+is_terminal reflects whether the descriptor is connected to a terminal device.
+is_smart_terminal is TRUE when COLORTERM or TERM indicate truecolor or 256-color support.
+color_disabled is TRUE when NO_COLOR is set. color_forced is TRUE when FORCE_COLOR is set.
+*/
+extern NError nexus_terminal_output_capabilities_get(int file_descriptor, NexusTerminalOutputCapabilities *capabilities);
+
+/*
+nexus_terminal_stdout_capabilities_get is a convenience wrapper for STDOUT_FILENO.
+*/
+extern NError nexus_terminal_stdout_capabilities_get(NexusTerminalOutputCapabilities *capabilities);
+
+/* ---------------------------------------------------------------------------- */
+/* STDIO                                                                        */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_stdio_stdout_write writes raw bytes to stdout.
+*/
+extern NError nexus_stdio_stdout_write(const byte *bytes, uint_large byte_length, uint_large *out_bytes_written);
+
+/*
+nexus_stdio_stdout_write_cstring writes a null-terminated string to stdout.
+*/
+extern NError nexus_stdio_stdout_write_cstring(const char *text);
+
+/*
+nexus_stdio_stdout_write_formatted formats and writes text to stdout.
+*/
+extern NError nexus_stdio_stdout_write_formatted(const char *format, ...);
+
+/*
+nexus_stdio_stdout_flush flushes stdout.
+*/
+extern NError nexus_stdio_stdout_flush(void);
+
+/*
+nexus_stdio_stderr_write writes raw bytes to stderr.
+*/
+extern NError nexus_stdio_stderr_write(const byte *bytes, uint_large byte_length, uint_large *out_bytes_written);
+
+/*
+nexus_stdio_stderr_write_cstring writes a null-terminated string to stderr.
+*/
+extern NError nexus_stdio_stderr_write_cstring(const char *text);
+
+/*
+nexus_stdio_stderr_write_formatted formats and writes text to stderr.
+*/
+extern NError nexus_stdio_stderr_write_formatted(const char *format, ...);
+
+/*
+nexus_stdio_stderr_flush flushes stderr.
+*/
+extern NError nexus_stdio_stderr_flush(void);
+
+/*
+nexus_stdio_stdin_read_line reads one line from stdin into buffer.
+
+When stdin reaches end-of-file before a line is read, sets out_reached_eof to TRUE.
+Interrupted reads are retried so callers can observe external cancellation first.
+*/
+extern NError nexus_stdio_stdin_read_line(char *buffer, uint_large buffer_max_length, boolean *out_reached_eof);
+
+/*
+nexus_stdio_stdin_is_terminal returns TRUE when stdin is connected to a terminal device.
+*/
+extern boolean nexus_stdio_stdin_is_terminal(void);
+
+/* ---------------------------------------------------------------------------- */
 /* MEMORY                                                                       */
 /* ---------------------------------------------------------------------------- */
 
@@ -1054,6 +1197,70 @@ Checks if two mixed strings are equal.
 Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
 */
 extern boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2);
+
+/*
+nexus_strings_string_parse_uint8 parses a base-10 unsigned integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the uint8 range.
+*/
+extern NError nexus_strings_string_parse_uint8(const char *string, uint8 *out_value);
+
+/*
+nexus_strings_string_parse_uint16 parses a base-10 unsigned integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the uint16 range.
+*/
+extern NError nexus_strings_string_parse_uint16(const char *string, uint16 *out_value);
+
+/*
+nexus_strings_string_parse_uint32 parses a base-10 unsigned integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the uint32 range.
+*/
+extern NError nexus_strings_string_parse_uint32(const char *string, uint32 *out_value);
+
+/*
+nexus_strings_string_parse_uint64 parses a base-10 unsigned integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the uint64 range.
+*/
+extern NError nexus_strings_string_parse_uint64(const char *string, uint64 *out_value);
+
+/*
+nexus_strings_string_parse_int8 parses a base-10 signed integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the int8 range.
+*/
+extern NError nexus_strings_string_parse_int8(const char *string, int8 *out_value);
+
+/*
+nexus_strings_string_parse_int16 parses a base-10 signed integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the int16 range.
+*/
+extern NError nexus_strings_string_parse_int16(const char *string, int16 *out_value);
+
+/*
+nexus_strings_string_parse_int32 parses a base-10 signed integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the int32 range.
+*/
+extern NError nexus_strings_string_parse_int32(const char *string, int32 *out_value);
+
+/*
+nexus_strings_string_parse_int64 parses a base-10 signed integer string into out_value.
+
+Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_INVALID_ARGUMENT when string is empty,
+not numeric, or outside the int64 range.
+*/
+extern NError nexus_strings_string_parse_int64(const char *string, int64 *out_value);
 
 /* ---------------------------------------------------------------------------- */
 /* TIME                                                                         */
@@ -1368,50 +1575,6 @@ Both paths are normalized to absolute form before comparison.
 extern boolean nexus_paths_path_is_within_directory(NexusPath candidate, NexusPath boundary_directory);
 
 /* ---------------------------------------------------------------------------- */
-/* ERRORS                                                                       */
-/* ---------------------------------------------------------------------------- */
-
-/*
-NError is the universal 32-bit error format shared across all libraries.
-
-The high 16 bits encode a two-character ASCII facility tag. The low 16 bits
-encode a facility-specific error code. NEXUS_ERROR_NONE (0) is success.
-
-Use nexus_errors_message_write to obtain a human-readable description of a
-NError value. Nexus only formats messages for its own 'N' 'X' facility errors.
-*/
-typedef uint32 NError;
-
-#define NEXUS_ERROR_NONE ((NError)0)
-
-/*
-NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NError.
-*/
-#define NEXUS_ERROR_MAKE(c1, c2, code) (((((uint32)(c1)) << 24) | (((uint32)(c2)) << 16)) | ((uint16)(code)))
-
-#define NEXUS_ERROR_FACILITY_BYTE_1(err) ((char)(((err) >> 24) & 0xFF))
-#define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
-#define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
-
-#define NEXUS_ERROR_FILE_NOT_FOUND    NEXUS_ERROR_MAKE('N', 'X', 1)
-#define NEXUS_ERROR_PERMISSION_DENIED NEXUS_ERROR_MAKE('N', 'X', 2)
-#define NEXUS_ERROR_ALREADY_EXISTS    NEXUS_ERROR_MAKE('N', 'X', 3)
-#define NEXUS_ERROR_DIR_NOT_EMPTY     NEXUS_ERROR_MAKE('N', 'X', 4)
-#define NEXUS_ERROR_DISK_FULL         NEXUS_ERROR_MAKE('N', 'X', 5)
-#define NEXUS_ERROR_INVALID_ARGUMENT  NEXUS_ERROR_MAKE('N', 'X', 6)
-#define NEXUS_ERROR_IO                NEXUS_ERROR_MAKE('N', 'X', 7)
-
-/*
-nexus_errors_message_write copies a human-readable description of error into buffer,
-optionally prefixed with prefix.
-
-When prefix is NULL or an empty string, the message is written without a prefix.
-Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
-buffer_max_length must be greater than zero.
-*/
-extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
-
-/* ---------------------------------------------------------------------------- */
 /* ENVIRONMENT                                                                  */
 /* ---------------------------------------------------------------------------- */
 
@@ -1427,6 +1590,11 @@ Returns NEXUS_ERROR_NONE on success. Returns NEXUS_ERROR_FILE_NOT_FOUND when the
 */
 extern NError nexus_environment_variable_get(const char *name, char *buffer, uint_large buffer_max_length);
 
+/*
+nexus_environment_variable_unset removes an environment variable from the current process.
+*/
+extern NError nexus_environment_variable_unset(const char *name);
+
 /* ---------------------------------------------------------------------------- */
 /* PROCESS                                                                      */
 /* ---------------------------------------------------------------------------- */
@@ -1439,6 +1607,26 @@ When environment is NULL, the current process environment is inherited.
 This function does not return on success.
 */
 extern NError nexus_process_replace(NexusPath executable_path, char *const *argv, char *const *environment);
+
+/*
+NexusProcessSpawnResult reports the exit status of a spawned child process.
+*/
+typedef struct NexusProcessSpawnResult {
+  int32 exit_code;
+} NexusProcessSpawnResult;
+
+/*
+nexus_process_spawn_wait starts executable_path in a child process and waits for completion.
+
+argv must be a NULL-terminated array whose first element is the executable path.
+When environment is NULL, the current process environment is inherited.
+*/
+extern NError nexus_process_spawn_wait(NexusPath executable_path, char *const *argv, char *const *environment, NexusProcessSpawnResult *result);
+
+/*
+nexus_process_id_get returns the current process identifier.
+*/
+extern uint32 nexus_process_id_get(void);
 
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
@@ -1501,6 +1689,11 @@ nexus_filesystem_file_delete deletes a file if it exists.
 Returns NEXUS_ERROR_NONE when the file is deleted or was already absent.
 */
 extern NError nexus_filesystem_file_delete(NexusPath file_path);
+
+/*
+nexus_filesystem_temp_directory_get writes the platform temporary directory path into buffer.
+*/
+extern NError nexus_filesystem_temp_directory_get(char *buffer, uint_large buffer_max_length);
 
 /*
 nexus_filesystem_directory_delete deletes a directory if it exists.

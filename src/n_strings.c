@@ -315,3 +315,174 @@ boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char 
 boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2) {
   return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
 }
+
+static NError nexus_strings_string_parse_unsigned_decimal(const char *string, uint64 max_value, uint64 *out_value) {
+  uint_large index;
+  uint64     parsed_value;
+
+  if (string == NULL || out_value == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  if (string[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  parsed_value = 0;
+  for (index = 0; string[index] != '\0'; index++) {
+    if (string[index] < '0' || string[index] > '9') {
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+
+    parsed_value = (parsed_value * 10ULL) + (uint64)(string[index] - '0');
+    if (parsed_value > max_value) {
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+  }
+
+  *out_value = parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+static NError nexus_strings_string_parse_signed_decimal(const char *string, int64 min_value, int64 max_value, int64 *out_value) {
+  boolean    negative;
+  uint_large index;
+  uint64     magnitude;
+  uint64     max_magnitude;
+  NError     status;
+
+  if (string == NULL || out_value == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  if (string[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  negative = FALSE;
+  index    = 0;
+  if (string[0] == '-') {
+    negative = TRUE;
+    index    = 1;
+  } else if (string[0] == '+') {
+    index = 1;
+  }
+
+  if (string[index] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  if (negative == TRUE) {
+    if (min_value == INT64_MIN_VAL) {
+      max_magnitude = (uint64)INT64_MAX_VAL + 1ULL;
+    } else {
+      max_magnitude = (uint64)(-(min_value));
+    }
+  } else {
+    max_magnitude = (uint64)max_value;
+  }
+
+  status = nexus_strings_string_parse_unsigned_decimal(string + index, max_magnitude, &magnitude);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (negative == TRUE) {
+    if (magnitude == (uint64)INT64_MAX_VAL + 1ULL) {
+      *out_value = INT64_MIN_VAL;
+      return NEXUS_ERROR_NONE;
+    }
+
+    *out_value = -(int64)magnitude;
+    return NEXUS_ERROR_NONE;
+  }
+
+  *out_value = (int64)magnitude;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_uint8(const char *string, uint8 *out_value) {
+  uint64     parsed_value;
+  NError     status;
+
+  status = nexus_strings_string_parse_unsigned_decimal(string, (uint64)UINT8_MAX_VAL, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (uint8)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_uint16(const char *string, uint16 *out_value) {
+  uint64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_unsigned_decimal(string, (uint64)UINT16_MAX_VAL, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (uint16)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_uint32(const char *string, uint32 *out_value) {
+  uint64 parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_unsigned_decimal(string, (uint64)UINT32_MAX_VAL, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (uint32)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_uint64(const char *string, uint64 *out_value) {
+  return nexus_strings_string_parse_unsigned_decimal(string, UINT64_MAX_VAL, out_value);
+}
+
+NError nexus_strings_string_parse_int8(const char *string, int8 *out_value) {
+  int64  parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_signed_decimal(string, (int64)INT8_MIN_VAL, (int64)INT8_MAX_VAL, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (int8)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_int16(const char *string, int16 *out_value) {
+  int64  parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_signed_decimal(string, (int64)INT16_MIN_VAL, (int64)INT16_MAX_VAL, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (int16)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_int32(const char *string, int32 *out_value) {
+  int64  parsed_value;
+  NError status;
+
+  status = nexus_strings_string_parse_signed_decimal(string, (int64)INT32_MIN_VAL, (int64)INT32_MAX_VAL, &parsed_value);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  *out_value = (int32)parsed_value;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_strings_string_parse_int64(const char *string, int64 *out_value) {
+  return nexus_strings_string_parse_signed_decimal(string, INT64_MIN_VAL, INT64_MAX_VAL, out_value);
+}

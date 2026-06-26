@@ -166,6 +166,49 @@ NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, ui
   return NEXUS_ERROR_NONE;
 }
 
+NError nexus_filesystem_temp_directory_get(char *buffer, uint_large buffer_max_length) {
+  NexusStringFormatResult copy_result;
+  NError                  environment_error;
+
+  NEXUS_ASSERT_DEBUG(buffer != NULL);
+  NEXUS_ASSERT_MESSAGE_DEBUG(buffer_max_length > 0, "temporary directory buffer must be non-zero");
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  {
+    DWORD copied_length;
+
+    copied_length = GetTempPathA((DWORD)buffer_max_length, buffer);
+    if (copied_length == 0 || copied_length >= (DWORD)buffer_max_length) {
+      return NEXUS_ERROR_IO;
+    }
+
+    return NEXUS_ERROR_NONE;
+  }
+#else
+  environment_error = nexus_environment_variable_get("TMPDIR", buffer, buffer_max_length);
+  if (environment_error == NEXUS_ERROR_NONE) {
+    return NEXUS_ERROR_NONE;
+  }
+
+  environment_error = nexus_environment_variable_get("TMP", buffer, buffer_max_length);
+  if (environment_error == NEXUS_ERROR_NONE) {
+    return NEXUS_ERROR_NONE;
+  }
+
+  environment_error = nexus_environment_variable_get("TEMP", buffer, buffer_max_length);
+  if (environment_error == NEXUS_ERROR_NONE) {
+    return NEXUS_ERROR_NONE;
+  }
+
+  copy_result = nexus_strings_string_copy_exact(buffer, buffer_max_length, "/tmp");
+  if (copy_result.success == FALSE) {
+    return NEXUS_ERROR_IO;
+  }
+
+  return NEXUS_ERROR_NONE;
+#endif
+}
+
 #if defined(NEXUS_PLATFORM_WINDOWS)
 
 NError nexus_filesystem_directory_create(NexusPath directory_path) {

@@ -64,3 +64,21 @@ NError nexus_environment_variable_get(const char *name, char *buffer, uint_large
 #  error "Unsupported platform"
 #endif
 }
+
+NError nexus_environment_variable_unset(const char *name) {
+  NEXUS_ASSERT_DEBUG(name != NULL);
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  if (SetEnvironmentVariableA(name, NULL) == 0) {
+    return NEXUS_ERROR_IO;
+  }
+  return NEXUS_ERROR_NONE;
+#elif defined(NEXUS_PLATFORM_POSIX)
+  if (unsetenv(name) != 0) {
+    return NEXUS_ERROR_IO;
+  }
+  return NEXUS_ERROR_NONE;
+#else
+#  error "Unsupported platform"
+#endif
+}
