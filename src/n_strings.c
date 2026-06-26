@@ -34,6 +34,15 @@ static NexusStringFormatResult p_string_format_from_stb_truncated(int stb_result
   return p_string_format_result_create(required_length, required_length, FALSE, TRUE);
 }
 
+static NexusStringFormatResult p_string_format_result_from_required_length(int stb_result) {
+  uint_large required_length;
+
+  NEXUS_ASSERT_DEBUG(stb_result >= 0);
+
+  required_length = (uint_large)stb_result;
+  return p_string_format_result_create(0, required_length, FALSE, TRUE);
+}
+
 NexusStringFormatResult nexus_strings_string_format(char *string, uint_large max_string_length, const char *format, ...) {
   va_list                 args;
   NexusStringFormatResult result;
@@ -90,6 +99,26 @@ NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *strin
   return p_string_format_from_stb_truncated(stb_result, max_string_length);
 }
 
+NexusStringFormatResult nexus_strings_vstring_format_required_length(const char *format, va_list args) {
+  int stb_result;
+
+  NEXUS_ASSERT_DEBUG(format != NULL);
+
+  stb_result = stbsp_vsnprintf(NULL, 0, format, args);
+  return p_string_format_result_from_required_length(stb_result);
+}
+
+NexusStringFormatResult nexus_strings_string_format_required_length(const char *format, ...) {
+  va_list                 args;
+  NexusStringFormatResult result;
+
+  va_start(args, format);
+  result = nexus_strings_vstring_format_required_length(format, args);
+  va_end(args);
+
+  return result;
+}
+
 #define NEXUS_STRINGS_BYTES_PER_KIB 1024ULL
 static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
 
@@ -144,7 +173,7 @@ static NexusStringFormatResult n_strings_quantity_format_scaled(char *string, ui
   uint32             whole;
 
   if (unit_index >= (uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0])) {
-    unit_index = (uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0]) - 1U;
+    unit_index = ((uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0])) - 1U;
   }
 
   whole = (uint32)value;
@@ -192,8 +221,10 @@ NexusStringFormatResult nexus_strings_quantity_format_f_real(char *string, uint_
   }
 
   if (value < (f_real)1000) {
-    if (value == nexus_real_round_to_int64(value, NRRM_ROUND_EVEN)) {
-      return nexus_strings_string_format_with_truncation(string, max_string_length, "%lld", (long long)nexus_real_round_to_int64(value, NRRM_ROUND_EVEN));
+    int64 rounded_value = nexus_real_round_to_int64(value, NRRM_ROUND_EVEN);
+
+    if (value == (f_real)rounded_value) {
+      return nexus_strings_string_format_with_truncation(string, max_string_length, "%lld", (long long)rounded_value);
     }
 
     return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f", value);

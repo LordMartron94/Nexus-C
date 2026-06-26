@@ -1074,6 +1074,18 @@ extern NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char
                                                                             va_list args);
 
 /*
+nexus_strings_string_format_required_length returns the character count required to format the
+arguments, excluding the null terminator. No destination buffer is written.
+*/
+extern NexusStringFormatResult nexus_strings_string_format_required_length(const char *format, ...);
+
+/*
+nexus_strings_vstring_format_required_length returns the character count required to format the
+arguments, excluding the null terminator. No destination buffer is written.
+*/
+extern NexusStringFormatResult nexus_strings_vstring_format_required_length(const char *format, va_list args);
+
+/*
 nexus_strings_bytes_format writes byte_count as a human-readable binary size (B, KiB, MiB, GiB, TiB).
 Uses IEC binary prefixes (1024). string must not be NULL and max_string_length must be greater than zero.
 */
@@ -1868,6 +1880,13 @@ Returns NEXUS_ERROR_NONE on success or if the directory already exists.
 extern NError nexus_filesystem_directory_create(NexusPath directory_path);
 
 /*
+nexus_filesystem_directory_create_parents creates directory_path and any missing parent directories.
+
+Returns NEXUS_ERROR_NONE on success or when directory_path already exists as a directory.
+*/
+extern NError nexus_filesystem_directory_create_parents(NexusPath directory_path);
+
+/*
 nexus_filesystem_path_is_dir checks whether a path is a directory.
 
 Sets out_is_dir to FALSE when the path does not exist. Returns a non-zero NError for
@@ -1889,6 +1908,14 @@ nexus_filesystem_file_delete deletes a file if it exists.
 Returns NEXUS_ERROR_NONE when the file is deleted or was already absent.
 */
 extern NError nexus_filesystem_file_delete(NexusPath file_path);
+
+/*
+nexus_filesystem_file_size_get writes the byte size of a regular file at file_path to out_byte_size.
+
+Returns NEXUS_ERROR_FILE_NOT_FOUND when the path does not exist and NEXUS_ERROR_INVALID_ARGUMENT
+when the path is not a regular file.
+*/
+extern NError nexus_filesystem_file_size_get(NexusPath file_path, uint_large *out_byte_size);
 
 /*
 nexus_filesystem_temp_directory_get writes the platform temporary directory path into buffer.

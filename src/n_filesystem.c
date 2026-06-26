@@ -299,6 +299,25 @@ NError nexus_filesystem_path_is_dir(NexusPath path, boolean *out_is_dir) {
   return NEXUS_ERROR_NONE;
 }
 
+NError nexus_filesystem_file_size_get(NexusPath file_path, uint_large *out_byte_size) {
+  WIN32_FILE_ATTRIBUTE_DATA file_info;
+
+  NEXUS_ASSERT_DEBUG(out_byte_size != NULL);
+
+  if (GetFileAttributesExA(file_path.buffer, GetFileExInfoStandard, &file_info) == 0) {
+    *out_byte_size = 0;
+    return nexus_errors_from_windows_error(GetLastError());
+  }
+
+  if ((file_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    *out_byte_size = 0;
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_byte_size = ((uint_large)file_info.nFileSizeHigh << 32) | (uint_large)file_info.nFileSizeLow;
+  return NEXUS_ERROR_NONE;
+}
+
 NError nexus_filesystem_directory_delete(NexusPath directory_path, boolean recursive) {
   WIN32_FIND_DATAA find_data;
   HANDLE           find_handle;
@@ -404,6 +423,25 @@ NError nexus_filesystem_path_is_dir(NexusPath path, boolean *out_is_dir) {
   return NEXUS_ERROR_NONE;
 }
 
+NError nexus_filesystem_file_size_get(NexusPath file_path, uint_large *out_byte_size) {
+  struct stat path_stat;
+
+  NEXUS_ASSERT_DEBUG(out_byte_size != NULL);
+
+  if (stat(file_path.buffer, &path_stat) != 0) {
+    *out_byte_size = 0;
+    return nexus_errors_from_errno();
+  }
+
+  if (!S_ISREG(path_stat.st_mode)) {
+    *out_byte_size = 0;
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_byte_size = (uint_large)path_stat.st_size;
+  return NEXUS_ERROR_NONE;
+}
+
 NError nexus_filesystem_directory_delete(NexusPath directory_path, boolean recursive) {
   DIR           *dir;
   struct dirent *entry;
@@ -459,3 +497,43 @@ NError nexus_filesystem_directory_delete(NexusPath directory_path, boolean recur
 }
 
 #endif
+
+NError nexus_filesystem_directory_create_parents(NexusPath directory_path) {
+  NexusPath parent_path;
+  boolean   directory_exists;
+  boolean   is_dir;
+  NError    status;
+
+  if (directory_path.length == 0) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  status = nexus_filesystem_path_exists(directory_path, &directory_exists);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  if (directory_exists == TRUE) {
+    status = nexus_filesystem_path_is_dir(directory_path, &is_dir);
+    if (status != NEXUS_ERROR_NONE) {
+      return status;
+    }
+
+    if (is_dir == FALSE) {
+      return NEXUS_ERROR_ALREADY_EXISTS;
+    }
+
+    return NEXUS_ERROR_NONE;
+  }
+
+  parent_path = nexus_paths_path_parent(directory_path);
+  if (nexus_strings_string_equals(parent_path.buffer, ".") == FALSE &&
+      nexus_strings_string_equals(parent_path.buffer, directory_path.buffer) == FALSE) {
+    status = nexus_filesystem_directory_create_parents(parent_path);
+    if (status != NEXUS_ERROR_NONE) {
+      return status;
+    }
+  }
+
+  return nexus_filesystem_directory_create(directory_path);
+}

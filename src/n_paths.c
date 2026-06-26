@@ -9,7 +9,6 @@
 #  include <dirent.h>
 #  include <unistd.h>
 
-extern char *realpath(const char *path, char *resolved_path);
 #else
 #  error "Unsupported platform"
 #endif
@@ -303,8 +302,8 @@ void nexus_paths_path_list_collect(NexusPath path, boolean recursive, boolean fi
   collector.write_index = 0;
 
   if (path_list->paths == NULL) {
-    path_list->count  = 0;
-    collector.mode    = NEXUS_PATH_LIST_COLLECT_COUNT;
+    path_list->count = 0;
+    collector.mode   = NEXUS_PATH_LIST_COLLECT_COUNT;
     nexus_paths_path_walk(path, nexus_paths_path_list_collector_callback, &collector, recursive, files_only, dirs_only);
     return;
   }
@@ -432,8 +431,8 @@ boolean nexus_paths_path_is_within_directory(NexusPath candidate, NexusPath boun
   NexusPath boundary_absolute;
   uint16    index;
 
-  candidate_absolute  = nexus_paths_path_relative_to_absolute(candidate);
-  boundary_absolute   = nexus_paths_path_relative_to_absolute(boundary_directory);
+  candidate_absolute = nexus_paths_path_relative_to_absolute(candidate);
+  boundary_absolute  = nexus_paths_path_relative_to_absolute(boundary_directory);
 
   if (boundary_absolute.length > candidate_absolute.length) {
     return FALSE;
@@ -505,7 +504,7 @@ boolean nexus_paths_path_find_ancestor_with_marker(NexusPath start_path, const c
     return FALSE;
   }
 
-  current_path   = nexus_paths_path_relative_to_absolute(start_path);
+  current_path    = nexus_paths_path_relative_to_absolute(start_path);
   depth_remaining = 64U;
 
   while (depth_remaining > 0) {
