@@ -452,4 +452,90 @@ boolean nexus_paths_path_is_within_directory(NexusPath candidate, NexusPath boun
   return nexus_paths_path_is_separator(candidate_absolute.buffer[boundary_absolute.length]);
 }
 
+NexusPath nexus_paths_path_parent(NexusPath path) {
+  NexusPath result;
+  uint16    length;
+  int32     index;
+  int32     last_separator_index;
+
+  result = path;
+  length = result.length;
+
+  while (length > 0 && nexus_paths_path_is_separator(result.buffer[length - 1])) {
+    result.buffer[length - 1] = '\0';
+    length--;
+  }
+
+  if (length == 0) {
+    return nexus_paths_path_create(".");
+  }
+
+  last_separator_index = -1;
+  for (index = 0; index < (int32)length; index++) {
+    if (nexus_paths_path_is_separator(result.buffer[index])) {
+      last_separator_index = index;
+    }
+  }
+
+  if (last_separator_index < 0) {
+    return nexus_paths_path_create(".");
+  }
+
+  if (last_separator_index == 0) {
+    result.buffer[1] = '\0';
+    result.length    = 1;
+    return result;
+  }
+
+  result.buffer[last_separator_index] = '\0';
+  result.length                       = (uint16)last_separator_index;
+  return result;
+}
+
+boolean nexus_paths_path_find_ancestor_with_marker(NexusPath start_path, const char *marker_name, NexusPath *out_directory) {
+  NexusPath current_path;
+  NexusPath marker_path;
+  boolean   exists;
+  uint32    depth_remaining;
+
+  NEXUS_ASSERT_DEBUG(marker_name != NULL);
+  NEXUS_ASSERT_DEBUG(out_directory != NULL);
+
+  if (marker_name[0] == '\0') {
+    return FALSE;
+  }
+
+  current_path   = nexus_paths_path_relative_to_absolute(start_path);
+  depth_remaining = 64U;
+
+  while (depth_remaining > 0) {
+    marker_path = current_path;
+    nexus_paths_path_append(&marker_path, marker_name);
+    if (nexus_filesystem_path_exists(marker_path, &exists) == NEXUS_ERROR_NONE && exists == TRUE) {
+      *out_directory = current_path;
+      return TRUE;
+    }
+
+    if (nexus_paths_path_is_absolute(current_path) == TRUE && current_path.length <= 1U) {
+      break;
+    }
+
+    {
+      NexusPath parent_path;
+      uint16    previous_length;
+
+      previous_length = current_path.length;
+      parent_path     = nexus_paths_path_parent(current_path);
+      if (parent_path.length == previous_length) {
+        break;
+      }
+      current_path = parent_path;
+    }
+
+    depth_remaining--;
+  }
+
+  return FALSE;
+}
+
 #endif

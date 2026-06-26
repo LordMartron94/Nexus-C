@@ -1080,6 +1080,18 @@ Uses IEC binary prefixes (1024). string must not be NULL and max_string_length m
 extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count);
 
 /*
+nexus_strings_quantity_format writes value as a decimal SI-scaled unitless quantity.
+Uses 1000-based prefixes: "", "K", "M", "G", "T".
+*/
+extern NexusStringFormatResult nexus_strings_quantity_format(char *string, uint_large max_string_length, uint64 value);
+
+/*
+nexus_strings_quantity_format_f_real writes value as a decimal SI-scaled unitless quantity.
+Uses 1000-based prefixes: "", "K", "M", "G", "T".
+*/
+extern NexusStringFormatResult nexus_strings_quantity_format_f_real(char *string, uint_large max_string_length, f_real value);
+
+/*
 nexus_strings_string_replace_non_alphanumeric copies src into dest, replacing each character that is not
 an ASCII letter or digit with replacement. dest is always null-terminated within dest_max_len.
 */
@@ -1746,6 +1758,21 @@ nexus_paths_path_is_within_directory returns TRUE when candidate resolves to a p
 Both paths are normalized to absolute form before comparison.
 */
 extern boolean nexus_paths_path_is_within_directory(NexusPath candidate, NexusPath boundary_directory);
+
+/*
+nexus_paths_path_parent returns the parent directory of path.
+
+The result has no trailing separator. Parent of a filesystem root (/ on POSIX, drive root on Windows) is the root itself.
+*/
+extern NexusPath nexus_paths_path_parent(NexusPath path);
+
+/*
+nexus_paths_path_find_ancestor_with_marker walks from start_path toward the filesystem root and returns the first
+ancestor directory that contains marker_name as a direct child path.
+
+out_directory receives the ancestor directory when found. start_path is normalized to an absolute path first.
+*/
+extern boolean nexus_paths_path_find_ancestor_with_marker(NexusPath start_path, const char *marker_name, NexusPath *out_directory);
 
 /* ---------------------------------------------------------------------------- */
 /* ENVIRONMENT                                                                  */

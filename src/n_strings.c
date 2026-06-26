@@ -139,6 +139,76 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_
   return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", value, units[unit_index]);
 }
 
+static NexusStringFormatResult n_strings_quantity_format_scaled(char *string, uint_large max_string_length, real64 value, uint32 unit_index) {
+  static const char *quantity_suffixes[] = {"", "K", "M", "G", "T"};
+  uint32             whole;
+
+  if (unit_index >= (uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0])) {
+    unit_index = (uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0]) - 1U;
+  }
+
+  whole = (uint32)value;
+  if ((real64)whole == value) {
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%u%s", whole, quantity_suffixes[unit_index]);
+  }
+
+  if (value >= (real64)10) {
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f%s", value, quantity_suffixes[unit_index]);
+  }
+
+  return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f%s", value, quantity_suffixes[unit_index]);
+}
+
+NexusStringFormatResult nexus_strings_quantity_format(char *string, uint_large max_string_length, uint64 value) {
+  real64 scaled_value;
+  uint32 unit_index;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+
+  if (value < 1000ULL) {
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%llu", (unsigned long long)value);
+  }
+
+  scaled_value = (real64)value;
+  unit_index   = 0;
+  while (scaled_value >= (real64)1000 && unit_index < 4U) {
+    scaled_value /= (real64)1000;
+    unit_index++;
+  }
+
+  return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index);
+}
+
+NexusStringFormatResult nexus_strings_quantity_format_f_real(char *string, uint_large max_string_length, f_real value) {
+  real64 scaled_value;
+  uint32 unit_index;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+
+  if (value < (f_real)0) {
+    value = -value;
+  }
+
+  if (value < (f_real)1000) {
+    if (value == nexus_real_round_to_int64(value, NRRM_ROUND_EVEN)) {
+      return nexus_strings_string_format_with_truncation(string, max_string_length, "%lld", (long long)nexus_real_round_to_int64(value, NRRM_ROUND_EVEN));
+    }
+
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f", value);
+  }
+
+  scaled_value = (real64)value;
+  unit_index   = 0;
+  while (scaled_value >= (real64)1000 && unit_index < 4U) {
+    scaled_value /= (real64)1000;
+    unit_index++;
+  }
+
+  return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index);
+}
+
 static uint8 n_strings_character_is_alphanumeric(char character) {
   if (character >= 'A' && character <= 'Z') {
     return TRUE;
