@@ -255,12 +255,18 @@ NError nexus_process_spawn_wait(NexusPath executable_path, char *const *argv, ch
     return NEXUS_ERROR_IO;
   }
 
-  if (WIFEXITED(wait_status) == 0) {
-    result->exit_code = 1;
+  if (WIFEXITED(wait_status) != 0) {
+    result->exit_code = (int32)WEXITSTATUS(wait_status);
     return NEXUS_ERROR_NONE;
   }
 
-  result->exit_code = (int32)WEXITSTATUS(wait_status);
+  if (WIFSIGNALED(wait_status) != 0) {
+    (void)nexus_stdio_stderr_write_formatted("Child process terminated by signal %d.\n", WTERMSIG(wait_status));
+  } else {
+    (void)nexus_stdio_stderr_write_cstring("Child process terminated abnormally.\n");
+  }
+
+  result->exit_code = 1;
   return NEXUS_ERROR_NONE;
 #endif
 }

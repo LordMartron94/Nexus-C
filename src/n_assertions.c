@@ -2,8 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static ErrorMessageReportCallback *n_error_report = NULL;
-static void                       *n_user_data    = NULL;
+static ErrorMessageReportCallback *n_error_report              = NULL;
+static void                       *n_user_data                 = NULL;
+static boolean                     n_runtime_assertions_active = TRUE;
 
 void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data) {
   n_error_report = callback;
@@ -12,6 +13,26 @@ void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, v
 
 boolean nexus_assertions_error_callback_installed_get(void) {
   return n_error_report != NULL;
+}
+
+boolean nexus_assertions_is_active(void) {
+#if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
+  return n_runtime_assertions_active;
+#else
+  return FALSE;
+#endif
+}
+
+boolean nexus_assertions_runtime_enabled_get(void) {
+  return nexus_assertions_is_active();
+}
+
+void nexus_assertions_runtime_enabled_set(boolean enabled) {
+#if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
+  n_runtime_assertions_active = enabled;
+#else
+  (void)enabled;
+#endif
 }
 
 #define NEXUS_ASSERTION_FAILURE_REPORT_MAX 500
@@ -97,4 +118,5 @@ static void nexus_assertions_failure_report_emit(const char *expression, const c
 
 void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line) {
   nexus_assertions_failure_report_emit(expression, message, file, line);
+  NEXUS_ASSERTIONS_DEBUG_TRAP();
 }
