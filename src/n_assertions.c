@@ -1,10 +1,16 @@
 #include "../nexus.h"
+
+#if NEXUS_ASSERTIONS_ENABLED
+
 #include <stdio.h>
 #include <stdlib.h>
 
-static ErrorMessageReportCallback *n_error_report              = NULL;
-static void                       *n_user_data                 = NULL;
-static boolean                     n_runtime_assertions_active = TRUE;
+static ErrorMessageReportCallback *n_error_report = NULL;
+static void                       *n_user_data      = NULL;
+
+#if NEXUS_ASSERTIONS_RUNTIME_ENABLED
+boolean n_runtime_assertions_active = TRUE;
+#endif
 
 void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data) {
   n_error_report = callback;
@@ -16,7 +22,7 @@ boolean nexus_assertions_error_callback_installed_get(void) {
 }
 
 boolean nexus_assertions_is_active(void) {
-#if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
+#if NEXUS_ASSERTIONS_RUNTIME_ENABLED
   return n_runtime_assertions_active;
 #else
   return FALSE;
@@ -24,11 +30,15 @@ boolean nexus_assertions_is_active(void) {
 }
 
 boolean nexus_assertions_runtime_enabled_get(void) {
-  return nexus_assertions_is_active();
+#if NEXUS_ASSERTIONS_RUNTIME_ENABLED
+  return n_runtime_assertions_active;
+#else
+  return FALSE;
+#endif
 }
 
 void nexus_assertions_runtime_enabled_set(boolean enabled) {
-#if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
+#if NEXUS_ASSERTIONS_RUNTIME_ENABLED
   n_runtime_assertions_active = enabled;
 #else
   (void)enabled;
@@ -120,3 +130,35 @@ void nexus_assertions_failure_report(const char *expression, const char *message
   nexus_assertions_failure_report_emit(expression, message, file, line);
   NEXUS_ASSERTIONS_DEBUG_TRAP();
 }
+
+#else /* !NEXUS_ASSERTIONS_ENABLED */
+
+void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data) {
+  (void)callback;
+  (void)user_data;
+}
+
+boolean nexus_assertions_error_callback_installed_get(void) {
+  return FALSE;
+}
+
+boolean nexus_assertions_is_active(void) {
+  return FALSE;
+}
+
+boolean nexus_assertions_runtime_enabled_get(void) {
+  return FALSE;
+}
+
+void nexus_assertions_runtime_enabled_set(boolean enabled) {
+  (void)enabled;
+}
+
+void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line) {
+  (void)expression;
+  (void)message;
+  (void)file;
+  (void)line;
+}
+
+#endif /* NEXUS_ASSERTIONS_ENABLED */

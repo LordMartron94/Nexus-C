@@ -2049,8 +2049,6 @@ extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char
 /* ASSERTIONS                                                                   */
 /* ---------------------------------------------------------------------------- */
 
-/* TODO: refactor into a global runtime?? */
-
 #ifndef NEXUS_ASSERTIONS_ENABLED
 #  define NEXUS_ASSERTIONS_ENABLED 1
 #endif
@@ -2062,6 +2060,47 @@ extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char
 #ifndef NEXUS_ASSERTIONS_RUNTIME_ENABLED
 #  define NEXUS_ASSERTIONS_RUNTIME_ENABLED 1
 #endif
+
+/*
+ErrorMessageReportCallback is the callback that gets invoked when an assertion fails.
+
+This is usually set to either an "ERROR" or "CRITICAL" report in a logger, depending on client interpretation.
+*/
+typedef void ErrorMessageReportCallback(void *user_data, const char *message, const char *file, uint32 line);
+
+/*
+nexus_assertions_is_active returns TRUE when compile-time assertions are enabled, runtime assertion gating is
+enabled, and the runtime switch has not been cleared by nexus_assertions_runtime_enabled_set(FALSE).
+*/
+extern boolean nexus_assertions_is_active(void);
+
+/*
+nexus_assertions_runtime_enabled_get returns the current runtime assertion switch state.
+*/
+extern boolean nexus_assertions_runtime_enabled_get(void);
+
+/*
+nexus_assertions_runtime_enabled_set sets the runtime assertion switch without changing compile-time configuration.
+
+When NEXUS_ASSERTIONS_RUNTIME_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
+When NEXUS_ASSERTIONS_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
+*/
+extern void nexus_assertions_runtime_enabled_set(boolean enabled);
+
+/*
+nexus_assertions_error_callback_set sets the callback used for reporting assertion failures.
+*/
+extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
+
+/*
+nexus_assertions_error_callback_installed_get returns TRUE when an assertion failure callback is registered.
+*/
+extern boolean nexus_assertions_error_callback_installed_get(void);
+
+/*
+nexus_assertions_failure_report reports an assertion failure with a plain message string.
+*/
+extern void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line);
 
 #if NEXUS_ASSERTIONS_ENABLED
 
@@ -2102,51 +2141,21 @@ extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char
       abort();
 #  endif /* NEXUS_ASSERTIONS_DEBUG_TRAP implementation selection */
 
+#if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
 /*
-ErrorMessageReportCallback is the callback that gets invoked when an assertion fails.
-
-This is usually set to either an "ERROR" or "CRITICAL" report in a logger, depending on client interpretation.
+Expose runtime assertion state for inline macro evaluation in hot paths.
 */
-typedef void ErrorMessageReportCallback(void *user_data, const char *message, const char *file, uint32 line);
-
-/*
-nexus_assertions_is_active returns TRUE when compile-time assertions are enabled, runtime assertion gating is
-enabled, and the runtime switch has not been cleared by nexus_assertions_runtime_enabled_set(FALSE).
-*/
-extern boolean nexus_assertions_is_active(void);
-
-/*
-nexus_assertions_runtime_enabled_get returns the current runtime assertion switch state.
-*/
-extern boolean nexus_assertions_runtime_enabled_get(void);
-
-/*
-nexus_assertions_runtime_enabled_set sets the runtime assertion switch without changing compile-time configuration.
-
-When NEXUS_ASSERTIONS_RUNTIME_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
-*/
-extern void nexus_assertions_runtime_enabled_set(boolean enabled);
-
-/*
-nexus_assertions_error_callback_set sets the callback used for reporting assertion failures.
-*/
-extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
-
-/*
-nexus_assertions_error_callback_installed_get returns TRUE when an assertion failure callback is registered.
-*/
-extern boolean nexus_assertions_error_callback_installed_get(void);
-
-/*
-nexus_assertions_failure_report reports an assertion failure with a plain message string.
-*/
-extern void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line);
+extern boolean n_runtime_assertions_active;
+#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (n_runtime_assertions_active)
+#else
+#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
+#endif
 
 #  if NEXUS_ASSERTIONS_RUNTIME_ENABLED
 
 #    define NEXUS_ASSERT(expr)                                                                                                                       \
       do {                                                                                                                                           \
-        if (nexus_assertions_is_active() == TRUE) {                                                                                                  \
+        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                  \
           if (!(expr)) {                                                                                                                             \
             nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                          \
           }                                                                                                                                          \
@@ -2155,7 +2164,7 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 
 #    define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                      \
       do {                                                                                                                                           \
-        if (nexus_assertions_is_active() == TRUE) {                                                                                                  \
+        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                  \
           if (!(expr)) {                                                                                                                             \
             nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                     \
           }                                                                                                                                          \
@@ -2166,7 +2175,7 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 
 #      define NEXUS_ASSERT_DEBUG(expr)                                                                                                              \
         do {                                                                                                                                         \
-          if (nexus_assertions_is_active() == TRUE) {                                                                                                \
+          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                \
             if (!(expr)) {                                                                                                                           \
               nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                        \
             }                                                                                                                                        \
@@ -2175,7 +2184,7 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 
 #      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                            \
         do {                                                                                                                                         \
-          if (nexus_assertions_is_active() == TRUE) {                                                                                                \
+          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                \
             if (!(expr)) {                                                                                                                           \
               nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                   \
             }                                                                                                                                        \
@@ -2200,6 +2209,7 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
 
 #else
 
+#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
 #  define NEXUS_ASSERT(expr)
 #  define NEXUS_ASSERT_MESSAGE(expr, message)
 #  define NEXUS_ASSERT_DEBUG(expr)
