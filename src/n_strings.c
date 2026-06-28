@@ -168,24 +168,102 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_
   return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", value, units[unit_index]);
 }
 
-static NexusStringFormatResult n_strings_quantity_format_scaled(char *string, uint_large max_string_length, real64 value, uint32 unit_index) {
+static uint32 n_strings_decimal_places_clamp(uint32 decimal_places) {
+  if (decimal_places > 9u) {
+    return 9u;
+  }
+
+  return decimal_places;
+}
+
+static NexusStringFormatResult n_strings_format_f_real_nonfinite(char *string, uint_large max_string_length, f_real value, const char *suffix,
+                                                                 boolean *is_nonfinite) {
+  if (suffix == NULL) {
+    suffix = "";
+  }
+
+  *is_nonfinite = FALSE;
+
+  if (value != value) {
+    *is_nonfinite = TRUE;
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "NaN%s", suffix);
+  }
+
+  if (value > REAL64_MAX_VAL) {
+    *is_nonfinite = TRUE;
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "Inf%s", suffix);
+  }
+
+  if (value < -REAL64_MAX_VAL) {
+    *is_nonfinite = TRUE;
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "-Inf%s", suffix);
+  }
+
+  return p_string_format_result_create(0, 0, FALSE, TRUE);
+}
+
+static NexusStringFormatResult n_strings_format_signed_fixed(char *string, uint_large max_string_length, f_real signed_value, uint32 decimal_places,
+                                                             const char *suffix) {
+  boolean negative;
+  real64  magnitude;
+  char    format_buf[24];
+  uint32  places;
+
+  if (suffix == NULL) {
+    suffix = "";
+  }
+
+  places    = n_strings_decimal_places_clamp(decimal_places);
+  negative  = (signed_value < (f_real)0) ? TRUE : FALSE;
+  magnitude = negative != FALSE ? -(real64)signed_value : (real64)signed_value;
+
+  if (suffix[0] == '%' && suffix[1] == '\0') {
+    if (negative != FALSE) {
+      (void)nexus_strings_string_format_with_truncation(format_buf, sizeof(format_buf), "-%%.%uf%%%%", places);
+    } else {
+      (void)nexus_strings_string_format_with_truncation(format_buf, sizeof(format_buf), "%%.%uf%%%%", places);
+    }
+  } else if (negative != FALSE) {
+    (void)nexus_strings_string_format_with_truncation(format_buf, sizeof(format_buf), "-%%.%uf%s", places, suffix);
+  } else {
+    (void)nexus_strings_string_format_with_truncation(format_buf, sizeof(format_buf), "%%.%uf%s", places, suffix);
+  }
+
+  return nexus_strings_string_format_with_truncation(string, max_string_length, format_buf, magnitude);
+}
+
+static NexusStringFormatResult n_strings_quantity_format_scaled(char *string, uint_large max_string_length, real64 signed_value, uint32 unit_index,
+                                                                uint32 decimal_places) {
   static const char *quantity_suffixes[] = {"", "K", "M", "G", "T"};
+  boolean            negative;
+  real64             magnitude;
   uint32             whole;
+  char               format_buf[24];
+  uint32             places;
 
   if (unit_index >= (uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0])) {
     unit_index = ((uint32)NEXUS_SIZEOF(quantity_suffixes) / (uint32)NEXUS_SIZEOF(quantity_suffixes[0])) - 1U;
   }
 
-  whole = (uint32)value;
-  if ((real64)whole == value) {
+  places    = n_strings_decimal_places_clamp(decimal_places);
+  negative  = (signed_value < 0.0) ? TRUE : FALSE;
+  magnitude = negative != FALSE ? -signed_value : signed_value;
+
+  whole = (uint32)magnitude;
+  if ((real64)whole == magnitude) {
+    if (negative != FALSE) {
+      return nexus_strings_string_format_with_truncation(string, max_string_length, "-%u%s", whole, quantity_suffixes[unit_index]);
+    }
     return nexus_strings_string_format_with_truncation(string, max_string_length, "%u%s", whole, quantity_suffixes[unit_index]);
   }
 
-  if (value >= (real64)10) {
-    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f%s", value, quantity_suffixes[unit_index]);
+  if (negative != FALSE) {
+    (void)nexus_strings_string_format_with_truncation(format_buf, sizeof(format_buf), "-%%.%uf%s", places, quantity_suffixes[unit_index]);
+  } else {
+    (void)nexus_strings_string_format_with_truncation(format_buf, sizeof(format_buf), "%%.%uf%s", places, quantity_suffixes[unit_index]);
   }
 
-  return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f%s", value, quantity_suffixes[unit_index]);
+  return nexus_strings_string_format_with_truncation(string, max_string_length, format_buf, magnitude);
 }
 
 NexusStringFormatResult nexus_strings_quantity_format(char *string, uint_large max_string_length, uint64 value) {
@@ -206,38 +284,77 @@ NexusStringFormatResult nexus_strings_quantity_format(char *string, uint_large m
     unit_index++;
   }
 
-  return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index);
+  return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index, NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES);
 }
 
-NexusStringFormatResult nexus_strings_quantity_format_f_real(char *string, uint_large max_string_length, f_real value) {
-  real64 scaled_value;
-  uint32 unit_index;
+NexusStringFormatResult nexus_strings_quantity_format_f_real_precision(char *string, uint_large max_string_length, f_real value, uint32 decimal_places) {
+  real64  scaled_value;
+  real64  magnitude;
+  uint32  unit_index;
+  boolean negative;
+  boolean is_nonfinite;
+  int64   rounded_value;
+  NexusStringFormatResult nonfinite_result;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
   NEXUS_ASSERT_DEBUG(max_string_length > 0);
 
-  if (value < (f_real)0) {
-    value = -value;
+  nonfinite_result = n_strings_format_f_real_nonfinite(string, max_string_length, value, "", &is_nonfinite);
+  if (is_nonfinite != FALSE) {
+    return nonfinite_result;
   }
 
-  if (value < (f_real)1000) {
-    int64 rounded_value = nexus_real_round_to_int64(value, NRRM_ROUND_EVEN);
+  negative  = (value < (f_real)0) ? TRUE : FALSE;
+  magnitude = negative != FALSE ? -(real64)value : (real64)value;
 
-    if (value == (f_real)rounded_value) {
+  if (magnitude < (real64)1000) {
+    rounded_value = nexus_real_round_to_int64((f_real)magnitude, NRRM_ROUND_EVEN);
+    if (magnitude == (real64)rounded_value) {
+      if (negative != FALSE) {
+        return nexus_strings_string_format_with_truncation(string, max_string_length, "-%lld", (long long)rounded_value);
+      }
       return nexus_strings_string_format_with_truncation(string, max_string_length, "%lld", (long long)rounded_value);
     }
 
-    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f", value);
+    return n_strings_format_signed_fixed(string, max_string_length, value, decimal_places, "");
   }
 
-  scaled_value = (real64)value;
+  scaled_value = magnitude;
   unit_index   = 0;
   while (scaled_value >= (real64)1000 && unit_index < 4U) {
     scaled_value /= (real64)1000;
     unit_index++;
   }
 
-  return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index);
+  if (negative != FALSE) {
+    scaled_value = -scaled_value;
+  }
+
+  return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index, decimal_places);
+}
+
+NexusStringFormatResult nexus_strings_quantity_format_f_real(char *string, uint_large max_string_length, f_real value) {
+  return nexus_strings_quantity_format_f_real_precision(string, max_string_length, value, NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES);
+}
+
+NexusStringFormatResult nexus_strings_percent_format_f_real_precision(char *string, uint_large max_string_length, f_real percent_value,
+                                                                      uint32 decimal_places) {
+  boolean                 is_nonfinite;
+  NexusStringFormatResult nonfinite_result;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+
+  nonfinite_result = n_strings_format_f_real_nonfinite(string, max_string_length, percent_value, "%", &is_nonfinite);
+  if (is_nonfinite != FALSE) {
+    return nonfinite_result;
+  }
+
+  return n_strings_format_signed_fixed(string, max_string_length, percent_value, decimal_places, "%");
+}
+
+NexusStringFormatResult nexus_strings_percent_format_f_real(char *string, uint_large max_string_length, f_real percent_value) {
+  return nexus_strings_percent_format_f_real_precision(string, max_string_length, percent_value, NEXUS_STRINGS_PERCENT_DEFAULT_DECIMAL_PLACES);
 }
 
 static uint8 n_strings_character_is_alphanumeric(char character) {

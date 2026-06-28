@@ -221,3 +221,7 @@ uint_large nexus_real_round_to_uint_large(f_real value, NexusRealRoundMode mode)
   n_real64_assert_in_uint_large_range(rounded);
   return (uint_large)rounded;
 }
+
+boolean nexus_real_is_finite(f_real value) {
+  return (value == value) && (value < REAL64_MAX_VAL) && (value > -REAL64_MAX_VAL);
+}

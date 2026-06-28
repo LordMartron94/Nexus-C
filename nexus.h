@@ -292,10 +292,10 @@ uint128 is a 128-bit unsigned integer stored as two 64-bit words.
 lo holds the least significant 64 bits. hi holds the most significant 64 bits.
 Arithmetic wraps modulo 2^128.
 */
-typedef struct uint128 {
+typedef struct uint128 { /* NOLINT */
   uint64 lo;
   uint64 hi;
-} uint128;
+} uint128; /* NOLINT */
 
 /*
 nexus_uint128_make constructs a 128-bit value from low and high words.
@@ -518,6 +518,11 @@ extern real64 nexus_real64_round(real64 value, NexusRealRoundMode mode);
 nexus_real_round rounds the configured f_real type using the selected mode.
 */
 extern f_real nexus_real_round(f_real value, NexusRealRoundMode mode);
+
+/*
+nexus_real_is_finite returns TRUE when value is neither NaN nor positive/negative infinity.
+*/
+extern boolean nexus_real_is_finite(f_real value);
 
 /*
 nexus_real32_round_to_int32 rounds then converts to int32. Debug builds assert range.
@@ -1158,6 +1163,14 @@ Uses IEC binary prefixes (1024). string must not be NULL and max_string_length m
 */
 extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count);
 
+#ifndef NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES
+#  define NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES 3u
+#endif
+
+#ifndef NEXUS_STRINGS_PERCENT_DEFAULT_DECIMAL_PLACES
+#  define NEXUS_STRINGS_PERCENT_DEFAULT_DECIMAL_PLACES 2u
+#endif
+
 /*
 nexus_strings_quantity_format writes value as a decimal SI-scaled unitless quantity.
 Uses 1000-based prefixes: "", "K", "M", "G", "T".
@@ -1166,9 +1179,31 @@ extern NexusStringFormatResult nexus_strings_quantity_format(char *string, uint_
 
 /*
 nexus_strings_quantity_format_f_real writes value as a decimal SI-scaled unitless quantity.
-Uses 1000-based prefixes: "", "K", "M", "G", "T".
+Uses 1000-based prefixes: "", "K", "M", "G", "T". Preserves sign; NaN and infinity render as NaN, Inf, and -Inf.
+Uses NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES fractional digits.
 */
 extern NexusStringFormatResult nexus_strings_quantity_format_f_real(char *string, uint_large max_string_length, f_real value);
+
+/*
+nexus_strings_quantity_format_f_real_precision is like nexus_strings_quantity_format_f_real but uses decimal_places
+for fractional output (clamped to 0–9).
+*/
+extern NexusStringFormatResult nexus_strings_quantity_format_f_real_precision(char *string, uint_large max_string_length, f_real value,
+                                                                              uint32 decimal_places);
+
+/*
+nexus_strings_percent_format_f_real writes a percentage (0–100 scale) with a trailing percent sign.
+Preserves sign; NaN and infinity render as NaN%, Inf%, and -Inf%.
+Uses NEXUS_STRINGS_PERCENT_DEFAULT_DECIMAL_PLACES fractional digits.
+*/
+extern NexusStringFormatResult nexus_strings_percent_format_f_real(char *string, uint_large max_string_length, f_real percent_value);
+
+/*
+nexus_strings_percent_format_f_real_precision is like nexus_strings_percent_format_f_real but uses decimal_places
+for fractional output (clamped to 0–9).
+*/
+extern NexusStringFormatResult nexus_strings_percent_format_f_real_precision(char *string, uint_large max_string_length, f_real percent_value,
+                                                                             uint32 decimal_places);
 
 /*
 nexus_strings_string_replace_non_alphanumeric copies src into dest, replacing each character that is not
@@ -2352,6 +2387,96 @@ extern f_real nexus_bits_f_real_from_uint32(uint32 bits);
 nexus_bits_f_real_from_uint64 reinterprets a 64-bit bit pattern as f_real.
 */
 extern f_real nexus_bits_f_real_from_uint64(uint64 bits);
+
+/*
+Bit-field helpers for fixed-width unsigned integers. bit_index 0 is the least significant bit.
+Get returns whether the bit is set. Set returns value with the bit cleared or set.
+*/
+
+static boolean nexus_bits_uint8_get(uint8 value, uint32 bit_index) /* NOLINT */ {
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 8u, "bit_index out of range for uint8.");
+  return (boolean)((value >> bit_index) & 1u);
+}
+
+static uint8 nexus_bits_uint8_set(uint8 value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+  const uint8 mask = (uint8)(1u << bit_index);
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 8u, "bit_index out of range for uint8.");
+
+  if (bit_value) {
+    return (uint8)(value | mask);
+  }
+
+  return (uint8)(value & (uint8)~mask);
+}
+
+static boolean nexus_bits_uint16_get(uint16 value, uint32 bit_index) /* NOLINT */ {
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 16u, "bit_index out of range for uint16.");
+  return (boolean)((value >> bit_index) & 1u);
+}
+
+static uint16 nexus_bits_uint16_set(uint16 value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+  const uint16 mask = (uint16)(1u << bit_index);
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 16u, "bit_index out of range for uint16.");
+
+  if (bit_value) {
+    return (uint16)(value | mask);
+  }
+
+  return (uint16)(value & (uint16)~mask);
+}
+
+static boolean nexus_bits_uint32_get(uint32 value, uint32 bit_index) /* NOLINT */ {
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 32u, "bit_index out of range for uint32.");
+  return (boolean)((value >> bit_index) & 1u);
+}
+
+static uint32 nexus_bits_uint32_set(uint32 value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+  const uint32 mask = (uint32)(1u << bit_index);
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 32u, "bit_index out of range for uint32.");
+
+  if (bit_value) {
+    return value | mask;
+  }
+
+  return value & ~mask;
+}
+
+static boolean nexus_bits_uint64_get(uint64 value, uint32 bit_index) /* NOLINT */ {
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 64u, "bit_index out of range for uint64.");
+  return (boolean)((value >> bit_index) & 1u);
+}
+
+static uint64 nexus_bits_uint64_set(uint64 value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+  const uint64 mask = ((uint64)1) << bit_index;
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 64u, "bit_index out of range for uint64.");
+
+  if (bit_value) {
+    return value | mask;
+  }
+
+  return value & ~mask;
+}
+
+static boolean nexus_bits_uint_large_get(uint_large value, uint32 bit_index) /* NOLINT */ {
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < (uint32)(NEXUS_SIZEOF(uint_large) * 8u), "bit_index out of range for uint_large.");
+  return (boolean)((value >> bit_index) & 1u);
+}
+
+static uint_large nexus_bits_uint_large_set(uint_large value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+  const uint_large mask = ((uint_large)1) << bit_index;
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < (uint32)(NEXUS_SIZEOF(uint_large) * 8u), "bit_index out of range for uint_large.");
+
+  if (bit_value) {
+    return value | mask;
+  }
+
+  return value & ~mask;
+}
 
 /* ---------------------------------------------------------------------------- */
 /* HASHING                                                                      */
