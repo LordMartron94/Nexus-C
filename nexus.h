@@ -1517,6 +1517,66 @@ buffer is NULL, or no token remains.
 extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, uint_large buffer_max_length);
 
 /* ---------------------------------------------------------------------------- */
+/* TABULAR                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+#define NEXUS_TABULAR_DEFAULT_LABEL_WIDTH 22
+#define NEXUS_TABULAR_DEFAULT_BANNER_WIDTH  97
+#define NEXUS_TABULAR_MAX_COLUMNS           32
+
+typedef enum NexusTabularAlign {
+  NEXUS_TABULAR_ALIGN_LEFT = 0,
+  NEXUS_TABULAR_ALIGN_RIGHT = 1
+} NexusTabularAlign;
+
+/*
+NexusTabularReport is the output sink for monospace text reports. Use the Vulkan-style two-pass
+pattern: begin with sizing_pass TRUE and buffer NULL to measure size, allocate, then render.
+*/
+typedef struct NexusTabularReport {
+  char      *buffer;
+  uint_large max_len;
+  uint_large offset;
+  boolean    sizing_pass;
+} NexusTabularReport;
+
+typedef struct NexusTabularColumn {
+  const char       *title;
+  uint32            width;
+  uint32            fit_width;
+  NexusTabularAlign align;
+} NexusTabularColumn;
+
+/*
+NexusTabularTable formats pipe-separated rows from column definitions. The table emits header text,
+dash separators, and aligned data rows. Column widths come from the declared width, header title
+length, and any values passed to column_fit before the header is written.
+*/
+typedef struct NexusTabularTable {
+  NexusTabularReport *report;
+  NexusTabularColumn  columns[NEXUS_TABULAR_MAX_COLUMNS];
+  uint32              column_count;
+  uint32              label_width;
+  uint32              label_fit_width;
+  boolean             header_written;
+} NexusTabularTable;
+
+extern void nexus_tabular_report_begin(NexusTabularReport *report, char *buffer, uint_large max_len, boolean sizing_pass);
+extern void nexus_tabular_report_section(NexusTabularReport *report, const char *title, uint32 banner_width);
+extern void nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...);
+extern void nexus_tabular_report_blank_line(NexusTabularReport *report);
+extern uint_large nexus_tabular_report_offset_get(const NexusTabularReport *report);
+extern uint64 nexus_tabular_report_required_size_get(const NexusTabularReport *report);
+
+extern void     nexus_tabular_table_begin(NexusTabularTable *table, NexusTabularReport *report, uint32 label_width);
+extern uint32   nexus_tabular_table_column_add(NexusTabularTable *table, const char *title, uint32 width, NexusTabularAlign align);
+extern void     nexus_tabular_table_column_fit(NexusTabularTable *table, uint32 column_index, const char *value);
+extern void     nexus_tabular_table_label_fit(NexusTabularTable *table, const char *value);
+extern void     nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title);
+extern void     nexus_tabular_table_row_write(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
+extern void     nexus_tabular_table_end(NexusTabularTable *table);
+
+/* ---------------------------------------------------------------------------- */
 /* LOCALE                                                                       */
 /* ---------------------------------------------------------------------------- */
 
@@ -2459,6 +2519,30 @@ static uint64 nexus_bits_uint64_set(uint64 value, uint32 bit_index, boolean bit_
   }
 
   return value & ~mask;
+}
+
+/*
+nexus_bits_uint64_popcount returns the number of set bits in value.
+*/
+static uint32 nexus_bits_uint64_popcount(uint64 value) /* NOLINT */ {
+  uint32 count;
+
+  count = 0;
+  while (value != 0ULL) {
+    value &= value - 1ULL;
+    count++;
+  }
+
+  return count;
+}
+
+/*
+nexus_bits_hash_mix_u64 mixes value into hash using a golden-ratio multiplier.
+*/
+static uint64 nexus_bits_hash_mix_u64(uint64 hash, uint64 value) /* NOLINT */ {
+  hash ^= value;
+  hash *= 0x9E3779B97F4A7C15ULL;
+  return hash;
 }
 
 static boolean nexus_bits_uint_large_get(uint_large value, uint32 bit_index) /* NOLINT */ {
