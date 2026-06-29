@@ -6,7 +6,7 @@ static uint32 n_tabular_string_width(const char *value) {
     return 0;
   }
 
-  return (uint32)nexus_strings_string_length(value);
+  return nexus_strings_display_width_get(value);
 }
 
 static uint32 n_tabular_max_u32(uint32 left, uint32 right) {
@@ -60,42 +60,42 @@ static void n_tabular_report_append_cstring_internal(NexusTabularReport *report,
 }
 
 static void n_tabular_cell_write(NexusTabularReport *report, const char *value, uint32 width, NexusTabularAlign align) {
-  char   cell_buffer[256];
-  uint32 value_width;
-  uint32 copy_width;
-  uint32 pad_i;
+  uint32     value_display_width;
+  uint32     pad_display;
+  uint32     pad_i;
+  uint_large copy_byte_length;
 
   if (value == NULL) {
     value = "";
   }
 
-  value_width = n_tabular_string_width(value);
-  if (value_width > width) {
-    copy_width = width;
+  value_display_width = n_tabular_string_width(value);
+  if (value_display_width > width) {
+    copy_byte_length    = nexus_strings_display_width_prefix_length_get(value, width);
+    value_display_width = width;
   } else {
-    copy_width = value_width;
+    copy_byte_length = nexus_strings_string_length(value);
   }
+
+  pad_display = width - value_display_width;
 
   if (align == NEXUS_TABULAR_ALIGN_RIGHT) {
-    if (width + 1U <= sizeof(cell_buffer)) {
-      (void)nexus_strings_string_format_with_truncation(cell_buffer, sizeof(cell_buffer), "%*.*s", (int)width, (int)copy_width, value);
-      if (report->sizing_pass == FALSE && width <= report->max_len - report->offset) {
-        nexus_memory_bytes_copy(report->buffer + report->offset, cell_buffer, width);
-      }
-      report->offset += width;
+    for (pad_i = 0; pad_i < pad_display; pad_i++) {
+      n_tabular_report_append_char(report, ' ');
     }
-    return;
   }
 
-  if (copy_width > 0U) {
-    if (report->sizing_pass == FALSE && copy_width < report->max_len - report->offset) {
-      nexus_memory_bytes_copy(report->buffer + report->offset, value, copy_width);
+  if (copy_byte_length > 0U) {
+    if (report->sizing_pass == FALSE && copy_byte_length < report->max_len - report->offset) {
+      nexus_memory_bytes_copy(report->buffer + report->offset, value, copy_byte_length);
     }
-    report->offset += copy_width;
+    report->offset += copy_byte_length;
   }
 
-  for (pad_i = copy_width; pad_i < width; pad_i++) {
-    n_tabular_report_append_char(report, ' ');
+  if (align == NEXUS_TABULAR_ALIGN_LEFT) {
+    for (pad_i = 0; pad_i < pad_display; pad_i++) {
+      n_tabular_report_append_char(report, ' ');
+    }
   }
 }
 

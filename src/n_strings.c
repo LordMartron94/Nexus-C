@@ -1096,3 +1096,184 @@ NexusStringFormatResult nexus_strings_string_format_hex_f_real_bits(char *string
   return nexus_strings_string_format_hex_real32_bits(string, max_string_length, (real32)value);
 #endif
 }
+
+static const char *n_strings_cursor_skip_ansi(const char *cursor) {
+  const char *next_cursor;
+
+  if (cursor == NULL || cursor[0] != '\033') {
+    return cursor;
+  }
+
+  if (cursor[1] != '[') {
+    return cursor + 1;
+  }
+
+  next_cursor = cursor + 2;
+  while (next_cursor[0] != '\0' && next_cursor[0] != 'm') {
+    next_cursor++;
+  }
+
+  if (next_cursor[0] == 'm') {
+    next_cursor++;
+  }
+
+  return next_cursor;
+}
+
+static boolean n_strings_utf8_decode_at(const unsigned char *text, uint32 *out_codepoint, uint32 *out_byte_count) {
+  unsigned char lead;
+  unsigned char byte_1;
+  unsigned char byte_2;
+  unsigned char byte_3;
+
+  if (text == NULL || out_codepoint == NULL || out_byte_count == NULL) {
+    return FALSE;
+  }
+
+  lead = text[0];
+  if (lead == '\0') {
+    return FALSE;
+  }
+
+  if (lead < 0x80U) {
+    *out_codepoint  = (uint32)lead;
+    *out_byte_count = 1;
+    return TRUE;
+  }
+
+  if ((lead & 0xE0U) == 0xC0U) {
+    byte_1 = text[1];
+    if (byte_1 == '\0' || (byte_1 & 0xC0U) != 0x80U) {
+      *out_codepoint  = (uint32)lead;
+      *out_byte_count = 1;
+      return TRUE;
+    }
+
+    *out_codepoint  = (uint32)(((lead & 0x1FU) << 6) | (byte_1 & 0x3FU));
+    *out_byte_count = 2;
+    return TRUE;
+  }
+
+  if ((lead & 0xF0U) == 0xE0U) {
+    byte_1 = text[1];
+    byte_2 = text[2];
+    if (byte_1 == '\0' || byte_2 == '\0' || (byte_1 & 0xC0U) != 0x80U || (byte_2 & 0xC0U) != 0x80U) {
+      *out_codepoint  = (uint32)lead;
+      *out_byte_count = 1;
+      return TRUE;
+    }
+
+    *out_codepoint  = (uint32)(((lead & 0x0FU) << 12) | ((byte_1 & 0x3FU) << 6) | (byte_2 & 0x3FU));
+    *out_byte_count = 3;
+    return TRUE;
+  }
+
+  if ((lead & 0xF8U) == 0xF0U) {
+    byte_1 = text[1];
+    byte_2 = text[2];
+    byte_3 = text[3];
+    if (byte_1 == '\0' || byte_2 == '\0' || byte_3 == '\0' || (byte_1 & 0xC0U) != 0x80U || (byte_2 & 0xC0U) != 0x80U ||
+        (byte_3 & 0xC0U) != 0x80U) {
+      *out_codepoint  = (uint32)lead;
+      *out_byte_count = 1;
+      return TRUE;
+    }
+
+    *out_codepoint  = (uint32)(((lead & 0x07U) << 18) | ((byte_1 & 0x3FU) << 12) | ((byte_2 & 0x3FU) << 6) | (byte_3 & 0x3FU));
+    *out_byte_count = 4;
+    return TRUE;
+  }
+
+  *out_codepoint  = (uint32)lead;
+  *out_byte_count = 1;
+  return TRUE;
+}
+
+static uint32 n_strings_codepoint_display_width(uint32 codepoint) {
+  if (codepoint < 0x20U || codepoint == 0x7FU) {
+    return 0;
+  }
+
+  if (codepoint <= 0x7EU) {
+    return 1;
+  }
+
+  if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
+      (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE1FU) || (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) ||
+      (codepoint >= 0xFF00U && codepoint <= 0xFF60U) || (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U)) {
+    return 2;
+  }
+
+  return 1;
+}
+
+static void n_strings_display_measure(const char *text, uint32 max_display_width, boolean limit_display_width, uint32 *out_display_width,
+                                      uint_large *out_byte_length) {
+  const char         *cursor;
+  const unsigned char *bytes;
+  uint32              display_width;
+  uint_large          byte_length;
+
+  display_width = 0;
+  byte_length   = 0;
+  cursor        = text;
+
+  if (text == NULL) {
+    if (out_display_width != NULL) {
+      *out_display_width = 0;
+    }
+    if (out_byte_length != NULL) {
+      *out_byte_length = 0;
+    }
+    return;
+  }
+
+  while (cursor[0] != '\0') {
+    const char *after_ansi;
+    uint32      codepoint;
+    uint32      glyph_byte_count;
+    uint32      glyph_display_width;
+
+    after_ansi = n_strings_cursor_skip_ansi(cursor);
+    if (after_ansi != cursor) {
+      byte_length += (uint_large)(after_ansi - cursor);
+      cursor = after_ansi;
+      continue;
+    }
+
+    bytes = (const unsigned char *)cursor;
+    if (n_strings_utf8_decode_at(bytes, &codepoint, &glyph_byte_count) == FALSE) {
+      break;
+    }
+
+    glyph_display_width = n_strings_codepoint_display_width(codepoint);
+    if (limit_display_width == TRUE && display_width + glyph_display_width > max_display_width) {
+      break;
+    }
+
+    display_width += glyph_display_width;
+    byte_length += glyph_byte_count;
+    cursor += glyph_byte_count;
+  }
+
+  if (out_display_width != NULL) {
+    *out_display_width = display_width;
+  }
+  if (out_byte_length != NULL) {
+    *out_byte_length = byte_length;
+  }
+}
+
+uint32 nexus_strings_display_width_get(const char *text) {
+  uint32 display_width;
+
+  n_strings_display_measure(text, 0, FALSE, &display_width, NULL);
+  return display_width;
+}
+
+uint_large nexus_strings_display_width_prefix_length_get(const char *text, uint32 max_display_width) {
+  uint_large byte_length;
+
+  n_strings_display_measure(text, max_display_width, TRUE, NULL, &byte_length);
+  return byte_length;
+}

@@ -1232,6 +1232,21 @@ string must not be NULL.
 extern uint_large nexus_strings_string_length(const char *string);
 
 /*
+nexus_strings_display_width_get returns the terminal column width of text.
+
+ANSI SGR sequences (ESC [ ... m) contribute zero width. UTF-8 codepoints use a
+single column unless they fall in a common double-width range (CJK/fullwidth).
+*/
+extern uint32 nexus_strings_display_width_get(const char *text);
+
+/*
+nexus_strings_display_width_prefix_length_get returns the byte length of the
+longest prefix of text whose display width is at most max_display_width. The
+prefix never splits a UTF-8 codepoint.
+*/
+extern uint_large nexus_strings_display_width_prefix_length_get(const char *text, uint32 max_display_width);
+
+/*
 Checks if a string exactly starts with the provided prefix.
 
 string and prefix must not be NULL.
