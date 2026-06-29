@@ -2524,16 +2524,17 @@ static boolean nexus_bits_uint64_get(uint64 value, uint32 bit_index) /* NOLINT *
   return (boolean)((value >> bit_index) & 1u);
 }
 
-static uint64 nexus_bits_uint64_set(uint64 value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+static void nexus_bits_uint64_set(uint64 *value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
   const uint64 mask = ((uint64)1) << bit_index;
 
   NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 64u, "bit_index out of range for uint64.");
 
   if (bit_value) {
-    return value | mask;
+    *value = *value | mask;
+    return;
   }
 
-  return value & ~mask;
+  *value = *value & ~mask;
 }
 
 /*
