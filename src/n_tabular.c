@@ -182,11 +182,14 @@ void nexus_tabular_table_begin(NexusTabularTable *table, NexusTabularReport *rep
   NEXUS_ASSERT_DEBUG(table != NULL);
   NEXUS_ASSERT_DEBUG(report != NULL);
 
-  table->report          = report;
-  table->column_count    = 0;
-  table->label_width     = label_width;
-  table->label_fit_width = 0;
-  table->header_written  = FALSE;
+  table->report               = report;
+  table->column_count         = 0;
+  table->label_width          = label_width;
+  table->label_fit_width      = 0;
+  table->header_written       = FALSE;
+  table->header_deferred      = FALSE;
+  table->deferred_label_title = NULL;
+  table->buffered_row_count   = 0;
 }
 
 uint32 nexus_tabular_table_column_add(NexusTabularTable *table, const char *title, uint32 width, NexusTabularAlign align) {
@@ -233,11 +236,11 @@ void nexus_tabular_table_label_fit(NexusTabularTable *table, const char *value) 
 static void n_tabular_table_separator_write(NexusTabularTable *table) {
   uint32 column_i;
 
-  n_tabular_report_append_repeat(table->report, '-', table->label_width);
+  n_tabular_report_append_repeat(table->report, '-', n_tabular_table_effective_label_width(table));
 
   for (column_i = 0; column_i < table->column_count; column_i++) {
     n_tabular_report_append_char(table->report, '|');
-    n_tabular_report_append_repeat(table->report, '-', table->columns[column_i].width);
+    n_tabular_report_append_repeat(table->report, '-', n_tabular_column_effective_width(&table->columns[column_i]));
   }
 
   n_tabular_report_append_char(table->report, '\n');
@@ -255,7 +258,7 @@ static void n_tabular_table_lock_layout(NexusTabularTable *table) {
   }
 }
 
-void nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title) {
+static void n_tabular_table_header_emit(NexusTabularTable *table, const char *label_title) {
   uint32 column_i;
 
   NEXUS_ASSERT_DEBUG(table != NULL);
@@ -277,6 +280,85 @@ void nexus_tabular_table_header_write(NexusTabularTable *table, const char *labe
   n_tabular_report_append_char(table->report, '\n');
   n_tabular_table_separator_write(table);
   table->header_written = TRUE;
+}
+
+void nexus_tabular_table_header_defer(NexusTabularTable *table, const char *label_title) {
+  NEXUS_ASSERT_DEBUG(table != NULL);
+  NEXUS_ASSERT_DEBUG(table->header_written == FALSE);
+  NEXUS_ASSERT_DEBUG(table->header_deferred == FALSE);
+
+  table->header_deferred      = TRUE;
+  table->deferred_label_title = label_title;
+  if (label_title != NULL) {
+    nexus_tabular_table_label_fit(table, label_title);
+  }
+}
+
+void nexus_tabular_table_row_stage(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count) {
+  NexusTabularBufferedRow *buffered_row;
+  uint32                   column_i;
+
+  NEXUS_ASSERT_DEBUG(table != NULL);
+  NEXUS_ASSERT_DEBUG(table->header_deferred != FALSE);
+  NEXUS_ASSERT_DEBUG(table->header_written == FALSE);
+  NEXUS_ASSERT_DEBUG(cell_count == table->column_count);
+  NEXUS_ASSERT_MESSAGE_DEBUG(table->buffered_row_count < NEXUS_TABULAR_MAX_BUFFERED_ROWS, "Tabular row buffer overflow.");
+
+  if (row_label != NULL) {
+    nexus_tabular_table_label_fit(table, row_label);
+  }
+
+  for (column_i = 0; column_i < cell_count; column_i++) {
+    nexus_tabular_table_column_fit(table, column_i, cell_values[column_i]);
+  }
+
+  buffered_row = &table->buffered_rows[table->buffered_row_count];
+  if (row_label == NULL) {
+    buffered_row->row_label[0] = '\0';
+  } else {
+    nexus_strings_string_copy(buffered_row->row_label, NEXUS_SIZEOF(buffered_row->row_label), row_label);
+  }
+
+  for (column_i = 0; column_i < cell_count; column_i++) {
+    if (cell_values[column_i] == NULL) {
+      buffered_row->cell_values[column_i][0] = '\0';
+    } else {
+      nexus_strings_string_copy(buffered_row->cell_values[column_i], NEXUS_SIZEOF(buffered_row->cell_values[column_i]), cell_values[column_i]);
+    }
+    buffered_row->cell_pointers[column_i] = buffered_row->cell_values[column_i];
+  }
+
+  buffered_row->cell_count = cell_count;
+  table->buffered_row_count++;
+}
+
+void nexus_tabular_table_emit(NexusTabularTable *table) {
+  uint32 row_i;
+
+  NEXUS_ASSERT_DEBUG(table != NULL);
+
+  if (table->header_deferred == FALSE) {
+    return;
+  }
+
+  n_tabular_table_header_emit(table, table->deferred_label_title);
+
+  for (row_i = 0; row_i < table->buffered_row_count; row_i++) {
+    const NexusTabularBufferedRow *buffered_row;
+
+    buffered_row = &table->buffered_rows[row_i];
+    nexus_tabular_table_row_write(table, buffered_row->row_label, (const char *const *)buffered_row->cell_pointers, buffered_row->cell_count);
+  }
+
+  table->header_deferred      = FALSE;
+  table->deferred_label_title = NULL;
+  table->buffered_row_count   = 0;
+}
+
+void nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title) {
+  NEXUS_ASSERT_DEBUG(table != NULL);
+  NEXUS_ASSERT_DEBUG(table->header_written == FALSE);
+  n_tabular_table_header_emit(table, label_title);
 }
 
 void nexus_tabular_table_row_write(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count) {

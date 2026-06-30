@@ -1538,6 +1538,9 @@ extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, 
 #define NEXUS_TABULAR_DEFAULT_LABEL_WIDTH 22
 #define NEXUS_TABULAR_DEFAULT_BANNER_WIDTH  97
 #define NEXUS_TABULAR_MAX_COLUMNS           32
+#define NEXUS_TABULAR_MAX_BUFFERED_ROWS     64
+#define NEXUS_TABULAR_MAX_LABEL_LENGTH      64
+#define NEXUS_TABULAR_MAX_CELL_LENGTH       128
 
 typedef enum NexusTabularAlign {
   NEXUS_TABULAR_ALIGN_LEFT = 0,
@@ -1562,18 +1565,31 @@ typedef struct NexusTabularColumn {
   NexusTabularAlign align;
 } NexusTabularColumn;
 
+typedef struct NexusTabularBufferedRow {
+  char  row_label[NEXUS_TABULAR_MAX_LABEL_LENGTH];
+  char  cell_values[NEXUS_TABULAR_MAX_COLUMNS][NEXUS_TABULAR_MAX_CELL_LENGTH];
+  char *cell_pointers[NEXUS_TABULAR_MAX_COLUMNS];
+  uint32 cell_count;
+} NexusTabularBufferedRow;
+
 /*
 NexusTabularTable formats pipe-separated rows from column definitions. The table emits header text,
 dash separators, and aligned data rows. Column widths come from the declared width, header title
 length, and any values passed to column_fit before the header is written.
+
+When header emission is deferred, rows are staged with column_fit and label_fit until emit is called.
 */
 typedef struct NexusTabularTable {
-  NexusTabularReport *report;
-  NexusTabularColumn  columns[NEXUS_TABULAR_MAX_COLUMNS];
-  uint32              column_count;
-  uint32              label_width;
-  uint32              label_fit_width;
-  boolean             header_written;
+  NexusTabularReport      *report;
+  NexusTabularColumn       columns[NEXUS_TABULAR_MAX_COLUMNS];
+  uint32                   column_count;
+  uint32                   label_width;
+  uint32                   label_fit_width;
+  boolean                  header_written;
+  boolean                  header_deferred;
+  const char              *deferred_label_title;
+  NexusTabularBufferedRow  buffered_rows[NEXUS_TABULAR_MAX_BUFFERED_ROWS];
+  uint32                   buffered_row_count;
 } NexusTabularTable;
 
 extern void nexus_tabular_report_begin(NexusTabularReport *report, char *buffer, uint_large max_len, boolean sizing_pass);
@@ -1587,6 +1603,9 @@ extern void     nexus_tabular_table_begin(NexusTabularTable *table, NexusTabular
 extern uint32   nexus_tabular_table_column_add(NexusTabularTable *table, const char *title, uint32 width, NexusTabularAlign align);
 extern void     nexus_tabular_table_column_fit(NexusTabularTable *table, uint32 column_index, const char *value);
 extern void     nexus_tabular_table_label_fit(NexusTabularTable *table, const char *value);
+extern void     nexus_tabular_table_header_defer(NexusTabularTable *table, const char *label_title);
+extern void     nexus_tabular_table_row_stage(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
+extern void     nexus_tabular_table_emit(NexusTabularTable *table);
 extern void     nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title);
 extern void     nexus_tabular_table_row_write(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
 extern void     nexus_tabular_table_end(NexusTabularTable *table);
