@@ -522,7 +522,9 @@ extern f_real nexus_real_round(f_real value, NexusRealRoundMode mode);
 /*
 nexus_real_is_finite returns TRUE when value is neither NaN nor positive/negative infinity.
 */
-extern boolean nexus_real_is_finite(f_real value);
+static boolean nexus_real_is_finite(f_real value) /* NOLINT */ {
+  return (value == value) && (value < REAL64_MAX_VAL) && (value > -REAL64_MAX_VAL);
+}
 
 /*
 nexus_real32_round_to_int32 rounds then converts to int32. Debug builds assert range.
@@ -614,6 +616,7 @@ NEXUS_EXIT_CRASH_IMPLEMENTATION is set only in n_debug.c so allocator error path
 */
 
 #include <stddef.h>
+#include <string.h>
 
 #ifndef NEXUS_MEMORY_DEBUG_ENABLED
 #  define NEXUS_MEMORY_DEBUG_ENABLED 1
@@ -1083,7 +1086,6 @@ nexus_memory_bytes_copy copies byte_count bytes from src into dest.
 dest and src must not be NULL when byte_count is greater than zero.
 The regions must not overlap.
 */
-extern void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count);
 
 /* ---------------------------------------------------------------------------- */
 /* STRINGS                                                                      */
@@ -1229,7 +1231,6 @@ nexus_strings_string_length gets the current length of a string.
 
 string must not be NULL.
 */
-extern uint_large nexus_strings_string_length(const char *string);
 
 /*
 nexus_strings_display_width_get returns the terminal column width of text.
@@ -1251,7 +1252,6 @@ Checks if a string exactly starts with the provided prefix.
 
 string and prefix must not be NULL.
 */
-extern boolean nexus_strings_string_starts_with(const char *string, const char *prefix);
 
 /*
 Performs a safe, bounded copy of a string. Guarantees null-termination.
@@ -1297,56 +1297,48 @@ Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equ
 
 str1 and str2 must not be NULL.
 */
-extern int32 nexus_strings_string_compare(const char *str1, const char *str2);
 
 /*
 Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
 
 str1 and str2 must not be NULL.
 */
-extern int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2);
 
 /*
 Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
 
 str1 and str2 must not be NULL.
 */
-extern int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2);
 
 /*
 Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
 
 str1 and str2 must not be NULL.
 */
-extern int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2);
 
 /*
 Checks if two strings are equal.
 
 Convenience wrapper around `nexus_strings_string_compare`
 */
-extern boolean nexus_strings_string_equals(const char *str1, const char *str2);
 
 /*
 Checks if two unsigned strings are equal.
 
 Convenience wrapper around `nexus_strings_string_compare_unsigned`
 */
-extern boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2);
 
 /*
 Checks if two mixed strings are equal.
 
 Convenience wrapper around `nexus_strings_string_compare_mixed`
 */
-extern boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2);
 
 /*
 Checks if two mixed strings are equal.
 
 Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
 */
-extern boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2);
 
 /*
 nexus_strings_string_parse_uint8 parses a base-10 unsigned integer string into out_value.
@@ -2346,6 +2338,192 @@ extern boolean n_runtime_assertions_active;
 
 #endif /* NEXUS_ASSERTIONS_ENABLED */
 
+/*
+NEXUS_MEMORY_PREFETCH_LOCALITY_* map to temporal-locality hints for nexus_memory_prefetch.
+
+Higher locality keeps the line closer to the core; lower locality minimizes cache pollution.
+*/
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_NONE   0
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW     1
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM  2
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH    3
+
+/*
+NEXUS_MEMORY_PREFETCH hints the CPU to load the cache line containing address before it is accessed.
+
+read_write: FALSE prepares for read; TRUE prepares for read-modify-write.
+locality: one of NEXUS_MEMORY_PREFETCH_LOCALITY_*.
+No-op when the platform has no prefetch intrinsic.
+*/
+#if defined(__GNUC__) || defined(__clang__)
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) \
+    __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
+#elif defined(_MSC_VER)
+#  include <intrin.h>
+#  include <xmmintrin.h>
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality)                                                                                       \
+    do {                                                                                                                                             \
+      if ((read_write) != FALSE) {                                                                                                                   \
+        _m_prefetchw((void *)(address));                                                                                                              \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM) {                                                                              \
+        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                            \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                  \
+        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                           \
+      } else {                                                                                                                                       \
+        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                           \
+      }                                                                                                                                              \
+    } while (0)
+#else
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) ((void)(address), (void)(read_write), (void)(locality))
+#endif
+
+/*
+nexus_memory_bytes_copy copies byte_count bytes from src into dest.
+
+dest and src must not be NULL when byte_count is greater than zero.
+The regions must not overlap.
+*/
+static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  memcpy(dest, src, (size_t)byte_count);
+}
+
+/*
+nexus_strings_string_length gets the current length of a string.
+
+string must not be NULL.
+*/
+static uint_large nexus_strings_string_length(const char *string) /* NOLINT */ {
+  const char *ptr;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  ptr = string;
+  while (*ptr) {
+    ptr++;
+  }
+  return (uint_large)(ptr - string);
+}
+
+/*
+Checks if a string exactly starts with the provided prefix.
+
+string and prefix must not be NULL.
+*/
+static boolean nexus_strings_string_starts_with(const char *string, const char *prefix) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(prefix != NULL);
+  while (*prefix) {
+    if (*string != *prefix) {
+      return FALSE;
+    }
+    string++;
+    prefix++;
+  }
+  return TRUE;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare(const char *str1, const char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *(const unsigned char *)str1 - *(const unsigned char *)str2;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *str1 - *str2;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *(const unsigned char *)str2)) {
+    str1++;
+    str2++;
+  }
+  return *str1 - *(const unsigned char *)str2;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*(const unsigned char *)str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *(const unsigned char *)str1 - *str2;
+}
+
+/*
+Checks if two strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare`
+*/
+static boolean nexus_strings_string_equals(const char *str1, const char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare(str1, str2) == 0;
+}
+
+/*
+Checks if two unsigned strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_unsigned`
+*/
+static boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare_unsigned(str1, str2) == 0;
+}
+
+/*
+Checks if two mixed strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_mixed`
+*/
+static boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare_mixed(str1, str2) == 0;
+}
+
+/*
+Checks if two mixed strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
+*/
+static boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
+}
+
 /* ---------------------------------------------------------------------------- */
 /* BITS                                                                         */
 /* ---------------------------------------------------------------------------- */
@@ -2365,122 +2543,228 @@ bytes must not be NULL. Each function reads exactly sizeof(return type) bytes.
 /*
 nexus_bits_uint16_from_bytes_lsb decodes a 16-bit unsigned integer from 2 bytes, little-endian.
 */
-extern uint16 nexus_bits_uint16_from_bytes_lsb(const byte *bytes);
+static uint16 nexus_bits_uint16_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint16)((uint16)bytes[0] | ((uint16)bytes[1] << 8));
+}
 
 /*
 nexus_bits_uint32_from_bytes_lsb decodes a 32-bit unsigned integer from 4 bytes, little-endian.
 */
-extern uint32 nexus_bits_uint32_from_bytes_lsb(const byte *bytes);
+static uint32 nexus_bits_uint32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint32)bytes[0] | ((uint32)bytes[1] << 8) | ((uint32)bytes[2] << 16) | ((uint32)bytes[3] << 24);
+}
 
 /*
 nexus_bits_uint64_from_bytes_lsb decodes a 64-bit unsigned integer from 8 bytes, little-endian.
 */
-extern uint64 nexus_bits_uint64_from_bytes_lsb(const byte *bytes);
+static uint64 nexus_bits_uint64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint64)bytes[0] | ((uint64)bytes[1] << 8) | ((uint64)bytes[2] << 16) | ((uint64)bytes[3] << 24) | ((uint64)bytes[4] << 32) |
+         ((uint64)bytes[5] << 40) | ((uint64)bytes[6] << 48) | ((uint64)bytes[7] << 56);
+}
 
 /*
 nexus_bits_int16_from_bytes_lsb decodes a 16-bit signed integer from 2 bytes, little-endian.
 */
-extern int16 nexus_bits_int16_from_bytes_lsb(const byte *bytes);
+static int16 nexus_bits_int16_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (int16)nexus_bits_uint16_from_bytes_lsb(bytes);
+}
 
 /*
 nexus_bits_int32_from_bytes_lsb decodes a 32-bit signed integer from 4 bytes, little-endian.
 */
-extern int32 nexus_bits_int32_from_bytes_lsb(const byte *bytes);
+static int32 nexus_bits_int32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (int32)nexus_bits_uint32_from_bytes_lsb(bytes);
+}
 
 /*
 nexus_bits_int64_from_bytes_lsb decodes a 64-bit signed integer from 8 bytes, little-endian.
 */
-extern int64 nexus_bits_int64_from_bytes_lsb(const byte *bytes);
-
-/*
-nexus_bits_real32_from_bytes_lsb decodes a 32-bit IEEE-754 float from 4 bytes, little-endian.
-*/
-extern real32 nexus_bits_real32_from_bytes_lsb(const byte *bytes);
-
-/*
-nexus_bits_real64_from_bytes_lsb decodes a 64-bit IEEE-754 double from 8 bytes, little-endian.
-*/
-extern real64 nexus_bits_real64_from_bytes_lsb(const byte *bytes);
-
-/*
-nexus_bits_uint16_from_bytes_msb decodes a 16-bit unsigned integer from 2 bytes, big-endian.
-*/
-extern uint16 nexus_bits_uint16_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_uint32_from_bytes_msb decodes a 32-bit unsigned integer from 4 bytes, big-endian.
-*/
-extern uint32 nexus_bits_uint32_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_uint64_from_bytes_msb decodes a 64-bit unsigned integer from 8 bytes, big-endian.
-*/
-extern uint64 nexus_bits_uint64_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_int16_from_bytes_msb decodes a 16-bit signed integer from 2 bytes, big-endian.
-*/
-extern int16 nexus_bits_int16_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_int32_from_bytes_msb decodes a 32-bit signed integer from 4 bytes, big-endian.
-*/
-extern int32 nexus_bits_int32_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_int64_from_bytes_msb decodes a 64-bit signed integer from 8 bytes, big-endian.
-*/
-extern int64 nexus_bits_int64_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_real32_from_bytes_msb decodes a 32-bit IEEE-754 float from 4 bytes, big-endian.
-*/
-extern real32 nexus_bits_real32_from_bytes_msb(const byte *bytes);
-
-/*
-nexus_bits_real64_from_bytes_msb decodes a 64-bit IEEE-754 double from 8 bytes, big-endian.
-*/
-extern real64 nexus_bits_real64_from_bytes_msb(const byte *bytes);
+static int64 nexus_bits_int64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (int64)nexus_bits_uint64_from_bytes_lsb(bytes);
+}
 
 /*
 nexus_bits_uint32_from_real32 reinterprets a 32-bit float as its IEEE-754 bit pattern.
 */
-extern uint32 nexus_bits_uint32_from_real32(real32 value);
+static uint32 nexus_bits_uint32_from_real32(real32 value) /* NOLINT */ {
+  union {
+    real32 value;
+    uint32 bit_pattern;
+  } converter;
+
+  converter.value = value;
+  return converter.bit_pattern;
+}
 
 /*
 nexus_bits_real32_from_uint32 reinterprets a 32-bit bit pattern as IEEE-754 float.
 */
-extern real32 nexus_bits_real32_from_uint32(uint32 bits);
+static real32 nexus_bits_real32_from_uint32(uint32 bits) /* NOLINT */ {
+  union {
+    uint32 bit_pattern;
+    real32 value;
+  } converter;
+
+  converter.bit_pattern = bits;
+  return converter.value;
+}
 
 /*
 nexus_bits_uint64_from_real64 reinterprets a 64-bit float as its IEEE-754 bit pattern.
 */
-extern uint64 nexus_bits_uint64_from_real64(real64 value);
+static uint64 nexus_bits_uint64_from_real64(real64 value) /* NOLINT */ {
+  union {
+    real64 value;
+    uint64 bit_pattern;
+  } converter;
+
+  converter.value = value;
+  return converter.bit_pattern;
+}
 
 /*
 nexus_bits_real64_from_uint64 reinterprets a 64-bit bit pattern as IEEE-754 double.
 */
-extern real64 nexus_bits_real64_from_uint64(uint64 bits);
+static real64 nexus_bits_real64_from_uint64(uint64 bits) /* NOLINT */ {
+  union {
+    uint64 bit_pattern;
+    real64 value;
+  } converter;
+
+  converter.bit_pattern = bits;
+  return converter.value;
+}
+
+/*
+nexus_bits_real32_from_bytes_lsb decodes a 32-bit IEEE-754 float from 4 bytes, little-endian.
+*/
+static real32 nexus_bits_real32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return nexus_bits_real32_from_uint32(nexus_bits_uint32_from_bytes_lsb(bytes));
+}
+
+/*
+nexus_bits_real64_from_bytes_lsb decodes a 64-bit IEEE-754 double from 8 bytes, little-endian.
+*/
+static real64 nexus_bits_real64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return nexus_bits_real64_from_uint64(nexus_bits_uint64_from_bytes_lsb(bytes));
+}
+
+/*
+nexus_bits_uint16_from_bytes_msb decodes a 16-bit unsigned integer from 2 bytes, big-endian.
+*/
+static uint16 nexus_bits_uint16_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint16)(((uint16)bytes[0] << 8) | (uint16)bytes[1]);
+}
+
+/*
+nexus_bits_uint32_from_bytes_msb decodes a 32-bit unsigned integer from 4 bytes, big-endian.
+*/
+static uint32 nexus_bits_uint32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return ((uint32)bytes[0] << 24) | ((uint32)bytes[1] << 16) | ((uint32)bytes[2] << 8) | (uint32)bytes[3];
+}
+
+/*
+nexus_bits_uint64_from_bytes_msb decodes a 64-bit unsigned integer from 8 bytes, big-endian.
+*/
+static uint64 nexus_bits_uint64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return ((uint64)bytes[0] << 56) | ((uint64)bytes[1] << 48) | ((uint64)bytes[2] << 40) | ((uint64)bytes[3] << 32) | ((uint64)bytes[4] << 24) |
+         ((uint64)bytes[5] << 16) | ((uint64)bytes[6] << 8) | (uint64)bytes[7];
+}
+
+/*
+nexus_bits_int16_from_bytes_msb decodes a 16-bit signed integer from 2 bytes, big-endian.
+*/
+static int16 nexus_bits_int16_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (int16)nexus_bits_uint16_from_bytes_msb(bytes);
+}
+
+/*
+nexus_bits_int32_from_bytes_msb decodes a 32-bit signed integer from 4 bytes, big-endian.
+*/
+static int32 nexus_bits_int32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (int32)nexus_bits_uint32_from_bytes_msb(bytes);
+}
+
+/*
+nexus_bits_int64_from_bytes_msb decodes a 64-bit signed integer from 8 bytes, big-endian.
+*/
+static int64 nexus_bits_int64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (int64)nexus_bits_uint64_from_bytes_msb(bytes);
+}
+
+/*
+nexus_bits_real32_from_bytes_msb decodes a 32-bit IEEE-754 float from 4 bytes, big-endian.
+*/
+static real32 nexus_bits_real32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return nexus_bits_real32_from_uint32(nexus_bits_uint32_from_bytes_msb(bytes));
+}
+
+/*
+nexus_bits_real64_from_bytes_msb decodes a 64-bit IEEE-754 double from 8 bytes, big-endian.
+*/
+static real64 nexus_bits_real64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return nexus_bits_real64_from_uint64(nexus_bits_uint64_from_bytes_msb(bytes));
+}
 
 /*
 nexus_bits_uint32_from_f_real reinterprets f_real as its IEEE-754 bit pattern.
 */
-extern uint32 nexus_bits_uint32_from_f_real(f_real value);
+static uint32 nexus_bits_uint32_from_f_real(f_real value) /* NOLINT */ {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return (uint32)nexus_bits_uint64_from_real64((real64)value);
+#else
+  return nexus_bits_uint32_from_real32((real32)value);
+#endif
+}
 
 /*
 nexus_bits_uint64_from_f_real reinterprets f_real as its IEEE-754 bit pattern.
 */
-extern uint64 nexus_bits_uint64_from_f_real(f_real value);
+static uint64 nexus_bits_uint64_from_f_real(f_real value) /* NOLINT */ {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return nexus_bits_uint64_from_real64((real64)value);
+#else
+  return (uint64)nexus_bits_uint32_from_real32((real32)value);
+#endif
+}
 
 /*
 nexus_bits_f_real_from_uint32 reinterprets a 32-bit bit pattern as f_real.
 */
-extern f_real nexus_bits_f_real_from_uint32(uint32 bits);
+static f_real nexus_bits_f_real_from_uint32(uint32 bits) /* NOLINT */ {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return (f_real)nexus_bits_real64_from_uint64((uint64)bits);
+#else
+  return (f_real)nexus_bits_real32_from_uint32(bits);
+#endif
+}
 
 /*
 nexus_bits_f_real_from_uint64 reinterprets a 64-bit bit pattern as f_real.
 */
-extern f_real nexus_bits_f_real_from_uint64(uint64 bits);
+static f_real nexus_bits_f_real_from_uint64(uint64 bits) /* NOLINT */ {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+  return (f_real)nexus_bits_real64_from_uint64(bits);
+#else
+  return (f_real)nexus_bits_real32_from_uint32((uint32)bits);
+#endif
+}
 
 /*
 Bit-field helpers for fixed-width unsigned integers. bit_index 0 is the least significant bit.

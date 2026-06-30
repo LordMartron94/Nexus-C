@@ -406,29 +406,6 @@ NexusStringFormatResult nexus_strings_string_replace_non_alphanumeric(char *dest
   return p_string_format_result_create(dest_index, src_index, truncated, TRUE);
 }
 
-uint_large nexus_strings_string_length(const char *string) {
-  const char *ptr;
-
-  NEXUS_ASSERT_DEBUG(string != NULL);
-  ptr = string;
-  while (*ptr) {
-    ptr++;
-  }
-  return (uint_large)(ptr - string);
-}
-
-boolean nexus_strings_string_starts_with(const char *string, const char *prefix) {
-  NEXUS_ASSERT_DEBUG(string != NULL);
-  NEXUS_ASSERT_DEBUG(prefix != NULL);
-  while (*prefix) {
-    if (*string != *prefix)
-      return FALSE;
-    string++;
-    prefix++;
-  }
-  return TRUE;
-}
-
 void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *src) {
   (void)nexus_strings_string_copy_with_truncation(dest, dest_max_len, src);
 }
@@ -498,62 +475,6 @@ NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, ui
   }
 
   return p_string_format_result_create(src_length, src_length, FALSE, TRUE);
-}
-
-int32 nexus_strings_string_compare(const char *str1, const char *str2) {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*str1 == *str2)) {
-    str1++;
-    str2++;
-  }
-  return *(const unsigned char *)str1 - *(const unsigned char *)str2;
-}
-
-int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2) {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*str1 == *str2)) {
-    str1++;
-    str2++;
-  }
-  return *str1 - *str2;
-}
-
-int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2) {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*str1 == *(const unsigned char *)str2)) {
-    str1++;
-    str2++;
-  }
-  return *str1 - *(const unsigned char *)str2;
-}
-
-int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2) {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*(const unsigned char *)str1 == *str2)) {
-    str1++;
-    str2++;
-  }
-  return *(const unsigned char *)str1 - *str2;
-}
-
-boolean nexus_strings_string_equals(const char *str1, const char *str2) {
-  return nexus_strings_string_compare(str1, str2) == 0;
-}
-
-boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2) {
-  return nexus_strings_string_compare_unsigned(str1, str2) == 0;
-}
-
-boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2) {
-  return nexus_strings_string_compare_mixed(str1, str2) == 0;
-}
-
-boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2) {
-  return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
 }
 
 static NError nexus_strings_string_parse_unsigned_decimal(const char *string, uint64 max_value, uint64 *out_value) {
