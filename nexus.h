@@ -906,6 +906,11 @@ extern void exit_crash(uint32 status_code);
 
 #endif
 
+#define NEXUS_FREE_IF_NOT_NULL(ptr) \
+  if ((ptr) != NULL) { \
+    free((ptr)); \
+  } \
+
 #if NEXUS_EXIT_CRASH_ENABLED
 
 #  if !NEXUS_MEMORY_DEBUG_ENABLED
