@@ -681,8 +681,9 @@ respect the active flag for byte totals and allocation counts.
 extern void nexus_debug_mem_active(boolean active);
 
 /*
-NexusDebugMemLogCallback is invoked for each tracked malloc, calloc, realloc, and free when logging
-is enabled. message is fully formatted; file and line identify the allocation call site.
+NexusDebugMemLogCallback is invoked for each tracked malloc, calloc, realloc, free, and for
+nexus_memory_bytes_copy / set / clear when logging is enabled. message is fully formatted; file and
+line identify the call site.
 */
 typedef void NexusDebugMemLogCallback(void *user_data, const char *message, const char *file, uint32 line);
 
@@ -833,7 +834,32 @@ Returns FALSE when the range extends past the allocation, overlaps freed memory,
 stack. When ignore_not_found is TRUE, an untracked pointer returns FALSE without a warning;
 otherwise a warning is printed first.
 */
-extern boolean nexus_debug_mem_query_is_allocated(void *pointer, size_t size, boolean ignore_not_found);
+extern boolean nexus_debug_mem_query_is_allocated(const void *pointer, size_t size, boolean ignore_not_found);
+
+#if NEXUS_MEMORY_DEBUG_ENABLED
+
+/*
+nexus_debug_mem_bytes_copy is the memory-debugger path for nexus_memory_bytes_copy.
+Validates dest and src against tracked heap allocations, emits a log callback event when installed,
+then copies byte_count bytes. file and line identify the call site.
+*/
+extern void nexus_debug_mem_bytes_copy(void *dest, const void *src, uint_large byte_count, char *file, uint32 line);
+
+/*
+nexus_debug_mem_bytes_set is the memory-debugger path for nexus_memory_bytes_set.
+Validates dest against tracked heap allocations, emits a log callback event when installed, then
+writes byte into each of byte_count bytes. file and line identify the call site.
+*/
+extern void nexus_debug_mem_bytes_set(void *dest, uint8 byte, uint_large byte_count, char *file, uint32 line);
+
+/*
+nexus_debug_mem_bytes_clear is the memory-debugger path for nexus_memory_bytes_clear.
+Validates dest against tracked heap allocations, emits a log callback event when installed, then
+writes zero into each of byte_count bytes. file and line identify the call site.
+*/
+extern void nexus_debug_mem_bytes_clear(void *dest, uint_large byte_count, char *file, uint32 line);
+
+#endif /* NEXUS_MEMORY_DEBUG_ENABLED */
 
 /*
 nexus_debug_mem_check_bounds scans all live allocations for guard-byte overruns and underruns,
@@ -1080,17 +1106,6 @@ extern NError nexus_stdio_stdin_read_line(char *buffer, uint_large buffer_max_le
 nexus_stdio_stdin_is_terminal returns TRUE when stdin is connected to a terminal device.
 */
 extern boolean nexus_stdio_stdin_is_terminal(void);
-
-/* ---------------------------------------------------------------------------- */
-/* MEMORY                                                                       */
-/* ---------------------------------------------------------------------------- */
-
-/*
-nexus_memory_bytes_copy copies byte_count bytes from src into dest.
-
-dest and src must not be NULL when byte_count is greater than zero.
-The regions must not overlap.
-*/
 
 /* ---------------------------------------------------------------------------- */
 /* STRINGS                                                                      */
@@ -2343,6 +2358,10 @@ extern boolean n_runtime_assertions_active;
 
 #endif /* NEXUS_ASSERTIONS_ENABLED */
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY                                                                       */
+/* ---------------------------------------------------------------------------- */
+
 /*
 NEXUS_MEMORY_PREFETCH_LOCALITY_* map to temporal-locality hints for nexus_memory_prefetch.
 
@@ -2387,7 +2406,15 @@ nexus_memory_bytes_copy copies byte_count bytes from src into dest.
 
 dest and src must not be NULL when byte_count is greater than zero.
 The regions must not overlap.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_copy so dest and
+src are checked against tracked heap allocations and a memory-debugger log event is emitted when a
+log callback is installed.
 */
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+#  define nexus_memory_bytes_copy(dest, src, byte_count) \
+    nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
+#else
 static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
   if (byte_count == 0) {
     return;
@@ -2398,6 +2425,49 @@ static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte
 
   memcpy(dest, src, (size_t)byte_count);
 }
+#endif
+
+/*
+nexus_memory_bytes_set writes byte into each of byte_count bytes starting at dest.
+
+dest must not be NULL when byte_count is greater than zero.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_set so dest is
+checked against tracked heap allocations and a memory-debugger log event is emitted when a log
+callback is installed.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+#  define nexus_memory_bytes_set(dest, byte, byte_count) \
+    nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
+#else
+static void nexus_memory_bytes_set(void *dest, uint8 byte, uint_large byte_count) /* NOLINT */ {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+
+  memset(dest, (int)byte, (size_t)byte_count);
+}
+#endif
+
+/*
+nexus_memory_bytes_clear writes zero into each of byte_count bytes starting at dest.
+
+dest must not be NULL when byte_count is greater than zero.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_clear so dest is
+checked against tracked heap allocations and a memory-debugger log event is emitted when a log
+callback is installed.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+#  define nexus_memory_bytes_clear(dest, byte_count) \
+    nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
+#else
+static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLINT */ {
+  nexus_memory_bytes_set(dest, 0, byte_count);
+}
+#endif
 
 /*
 nexus_strings_string_length gets the current length of a string.

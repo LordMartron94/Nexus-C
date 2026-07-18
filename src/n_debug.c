@@ -65,15 +65,15 @@ static void *n_alloc_mutex                      = NULL;
 static int (*n_alloc_mutex_lock)(void *mutex)   = NULL;
 static int (*n_alloc_mutex_unlock)(void *mutex) = NULL;
 
-static size_t n_mem_stats_live_bytes            = 0;
-static size_t n_mem_stats_peak_live_bytes       = 0;
-static uint32 n_mem_stats_live_block_count      = 0;
-static uint32 n_mem_stats_peak_live_block_count = 0;
+static size_t     n_mem_stats_live_bytes            = 0;
+static size_t     n_mem_stats_peak_live_bytes       = 0;
+static uint32     n_mem_stats_live_block_count      = 0;
+static uint32     n_mem_stats_peak_live_block_count = 0;
 static uint_large n_mem_stats_total_bytes_allocated = 0;
 static uint_large n_mem_stats_total_bytes_freed     = 0;
 static uint_large n_mem_stats_allocation_count      = 0;
 static uint_large n_mem_stats_free_count            = 0;
-static size_t n_mem_stats_largest_allocation    = 0;
+static size_t     n_mem_stats_largest_allocation    = 0;
 
 static NexusDebugMemMeasurementContext *n_mem_measurement_context = NULL;
 
@@ -432,7 +432,7 @@ void *nexus_debug_mem_malloc(size_t size, char *file, unsigned int line) {
     return NULL;
   }
   pointer += NEXUS_MEMORY_PRE_PADDING;
-  memset(pointer, N_MEMORY_INITIALIZATION, size);
+  nexus_memory_bytes_set(pointer, N_MEMORY_INITIALIZATION, (uint_large)size);
   nexus_debug_mem_add(pointer, size, file, line);
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
@@ -473,7 +473,7 @@ void *nexus_debug_mem_calloc(size_t num, size_t size, char *file, unsigned int l
     return NULL;
   }
   pointer += NEXUS_MEMORY_PRE_PADDING;
-  memset(pointer, 0, size);
+  nexus_memory_bytes_clear(pointer, (uint_large)size);
   nexus_debug_mem_add(pointer, size, file, line);
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
@@ -879,21 +879,21 @@ void *nexus_debug_mem_query_allocation(void *pointer, unsigned int *line, char *
   return NULL;
 }
 
-boolean nexus_debug_mem_query_is_allocated(void *pointer, size_t size, boolean ignore_not_found) {
-  unsigned int   i;
-  unsigned int   j;
-  unsigned char *user_pointer;
-  unsigned char *alloc_start;
-  unsigned char *alloc_end;
-  unsigned char *access_end;
+boolean nexus_debug_mem_query_is_allocated(const void *pointer, size_t size, boolean ignore_not_found) {
+  unsigned int         i;
+  unsigned int         j;
+  const unsigned char *user_pointer;
+  const unsigned char *alloc_start;
+  const unsigned char *alloc_end;
+  const unsigned char *access_end;
 
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_lock(n_alloc_mutex);
-  user_pointer = (unsigned char *)pointer;
+  user_pointer = (const unsigned char *)pointer;
   access_end   = user_pointer + size;
   for (i = 0; i < n_alloc_line_count; i++) {
     for (j = 0; j < n_alloc_lines[i].alloc_count; j++) {
-      alloc_start = (unsigned char *)n_alloc_lines[i].allocs[j].buf;
+      alloc_start = (const unsigned char *)n_alloc_lines[i].allocs[j].buf;
       alloc_end   = alloc_start + n_alloc_lines[i].allocs[j].size;
       if (alloc_start <= user_pointer && alloc_end >= user_pointer) {
         if (alloc_end < access_end) {
@@ -911,7 +911,7 @@ boolean nexus_debug_mem_query_is_allocated(void *pointer, size_t size, boolean i
   }
 
   for (i = 0; i < n_freed_memory_count; i++) {
-    alloc_start = (unsigned char *)n_freed_memory[i].pointer;
+    alloc_start = (const unsigned char *)n_freed_memory[i].pointer;
     alloc_end   = alloc_start + n_freed_memory[i].size;
     if (user_pointer >= alloc_start && access_end <= alloc_end) {
       printf("Nexus Mem debugger error: pointer %p was freed on line %u in file %s\n", pointer, n_freed_memory[i].free_line,
@@ -934,6 +934,57 @@ boolean nexus_debug_mem_query_is_allocated(void *pointer, size_t size, boolean i
     return FALSE;
   printf("Nexus Mem debugger warning: no matching memory for pointer %p found\n", pointer);
   return FALSE;
+}
+
+void nexus_debug_mem_bytes_copy(void *dest, const void *src, uint_large byte_count, char *file, uint32 line) {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  (void)nexus_debug_mem_query_is_allocated(dest, (size_t)byte_count, TRUE);
+  (void)nexus_debug_mem_query_is_allocated(src, (size_t)byte_count, TRUE);
+
+  if (n_mem_log_callback != NULL) {
+    nexus_debug_mem_log_format(file, line, "memcpy %u bytes from %p to %p at %s line %u", (unsigned int)byte_count, src, dest, file, line);
+  }
+
+  memcpy(dest, src, (size_t)byte_count);
+}
+
+void nexus_debug_mem_bytes_set(void *dest, uint8 byte, uint_large byte_count, char *file, uint32 line) {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+
+  (void)nexus_debug_mem_query_is_allocated(dest, (size_t)byte_count, TRUE);
+
+  if (n_mem_log_callback != NULL) {
+    nexus_debug_mem_log_format(file, line, "memset %u bytes value %u at pointer %p at %s line %u", (unsigned int)byte_count, (unsigned int)byte, dest,
+                               file, line);
+  }
+
+  memset(dest, (int)byte, (size_t)byte_count);
+}
+
+void nexus_debug_mem_bytes_clear(void *dest, uint_large byte_count, char *file, uint32 line) {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+
+  (void)nexus_debug_mem_query_is_allocated(dest, (size_t)byte_count, TRUE);
+
+  if (n_mem_log_callback != NULL) {
+    nexus_debug_mem_log_format(file, line, "memclear %u bytes at pointer %p at %s line %u", (unsigned int)byte_count, dest, file, line);
+  }
+
+  memset(dest, 0, (size_t)byte_count);
 }
 
 size_t nexus_debug_mem_consumption(void) {
