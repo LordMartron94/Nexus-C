@@ -2960,7 +2960,61 @@ static uint_large nexus_bits_uint_large_set(uint_large value, uint32 bit_index, 
 /* HASHING                                                                      */
 /* ---------------------------------------------------------------------------- */
 
-typedef struct NexusHash NexusHash; /* Note, for now this is a stub, later it will be a hash. */
+/*
+NexusHash is reserved for future general-purpose hash containers.
+*/
+typedef struct NexusHash NexusHash;
+
+/*
+NexusHashEntropyFillCallback writes byte_count random bytes into out_bytes.
+
+Callers supply any RNG backend (for example Blaze entropy) without Nexus taking a
+dependency on that backend. The callback must write exactly byte_count bytes.
+user_data is the opaque pointer passed to nexus_hash_zobrist_table_fill.
+out_bytes must not be NULL when byte_count is greater than zero.
+*/
+typedef void NexusHashEntropyFillCallback(void *user_data, byte *out_bytes, uint64 byte_count);
+
+/*
+NexusHashZobristTable holds caller-owned Zobrist keys used for incremental XOR hashing.
+
+keys must remain valid for the lifetime of the table. Nexus does not allocate or free keys.
+See https://en.wikipedia.org/wiki/Zobrist_hashing
+*/
+typedef struct NexusHashZobristTable {
+  uint64 *keys;
+  uint64  key_count;
+} NexusHashZobristTable;
+
+/*
+nexus_hash_zobrist_table_fill fills each key in table with an independent random bitstring.
+
+Each uint64 key is assembled little-endian from eight bytes produced by fill.
+table and fill must not be NULL. table->keys must not be NULL when table->key_count is greater
+than zero. key_count may be zero.
+*/
+extern void nexus_hash_zobrist_table_fill(NexusHashZobristTable *table, NexusHashEntropyFillCallback *fill, void *user_data);
+
+/*
+nexus_hash_zobrist_key_get returns the key at index.
+
+table must not be NULL. index must be less than table->key_count.
+*/
+extern uint64 nexus_hash_zobrist_key_get(const NexusHashZobristTable *table, uint64 index);
+
+/*
+nexus_hash_zobrist_hash_xor returns hash XOR key.
+
+This is the incremental Zobrist update used when adding or removing a feature from a position.
+*/
+extern uint64 nexus_hash_zobrist_hash_xor(uint64 hash, uint64 key);
+
+/*
+nexus_hash_zobrist_hash_from_keys XORs key_count keys starting at keys into an initial zero hash.
+
+keys must not be NULL when key_count is greater than zero.
+*/
+extern uint64 nexus_hash_zobrist_hash_from_keys(const uint64 *keys, uint64 key_count);
 
 /* ---------------------------------------------------------------------------- */
 /* IDs                                                                          */
