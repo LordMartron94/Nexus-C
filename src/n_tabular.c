@@ -86,7 +86,8 @@ static void n_tabular_cell_write(NexusTabularReport *report, const char *value, 
   }
 
   if (copy_byte_length > 0U) {
-    if (report->sizing_pass == FALSE && copy_byte_length < report->max_len - report->offset) {
+    if (report->sizing_pass == FALSE && report->offset < report->max_len &&
+        copy_byte_length < (report->max_len - report->offset)) {
       nexus_memory_bytes_copy(report->buffer + report->offset, value, copy_byte_length);
     }
     report->offset += copy_byte_length;
@@ -146,6 +147,7 @@ void nexus_tabular_report_section(NexusTabularReport *report, const char *title,
 void nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...) {
   va_list                 args;
   NexusStringFormatResult format_res;
+  uint_large              remaining;
 
   NEXUS_ASSERT_DEBUG(report != NULL);
   NEXUS_ASSERT_DEBUG(format != NULL);
@@ -158,7 +160,19 @@ void nexus_tabular_report_line(NexusTabularReport *report, const char *format, .
     return;
   }
 
-  format_res = nexus_strings_vstring_format_with_truncation(report->buffer + report->offset, report->max_len - report->offset, format, args);
+  /*
+  Once the buffer is full, keep tracking required size via offset but never compute
+  max_len - offset (unsigned underflow) or write through buffer + offset.
+  */
+  if (report->offset >= report->max_len) {
+    format_res = nexus_strings_vstring_format_required_length(format, args);
+    va_end(args);
+    report->offset += format_res.required_length + 1U;
+    return;
+  }
+
+  remaining  = report->max_len - report->offset;
+  format_res = nexus_strings_vstring_format_with_truncation(report->buffer + report->offset, remaining, format, args);
   va_end(args);
   report->offset += format_res.written_length;
   n_tabular_report_append_char(report, '\n');
