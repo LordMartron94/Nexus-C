@@ -82,7 +82,7 @@ NError nexus_filesystem_file_close(NexusFileHandle *file_handle) {
   return NEXUS_ERROR_NONE;
 }
 
-NError nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint_large length, uint_large *out_bytes_written) {
+NError nexus_filesystem_file_write(NexusFileHandle *file_handle, const byte *bytes, uint_large length, uint_large *out_bytes_written) {
   size_t written_count;
   FILE  *file;
 

@@ -910,7 +910,10 @@ boolean nexus_debug_mem_query_is_allocated(const void *pointer, size_t size, boo
     }
   }
 
-  for (i = 0; i < n_freed_memory_count; i++) {
+  for (i = 0; i < n_freed_memory_count && i < n_freed_memory_store; i++) {
+    if (n_freed_memory[i].pointer == NULL || n_freed_memory[i].size == 0) {
+      continue;
+    }
     alloc_start = (const unsigned char *)n_freed_memory[i].pointer;
     alloc_end   = alloc_start + n_freed_memory[i].size;
     if (user_pointer >= alloc_start && access_end <= alloc_end) {

@@ -2162,7 +2162,7 @@ nexus_filesystem_file_write writes bytes to an opened file.
 Writes the number of bytes written to out_bytes_written. A short write without a
 stream error is not treated as failure.
 */
-extern NError nexus_filesystem_file_write(NexusFileHandle *file_handle, byte *bytes, uint_large length, uint_large *out_bytes_written);
+extern NError nexus_filesystem_file_write(NexusFileHandle *file_handle, const byte *bytes, uint_large length, uint_large *out_bytes_written);
 
 /*
 nexus_filesystem_file_flush flushes a file.
