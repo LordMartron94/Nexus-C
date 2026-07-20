@@ -3016,6 +3016,33 @@ keys must not be NULL when key_count is greater than zero.
 */
 extern uint64 nexus_hash_zobrist_hash_from_keys(const uint64 *keys, uint64 key_count);
 
+/*
+nexus_hash_fnv1a64_begin returns the FNV-1a 64-bit offset basis for a new hash stream.
+
+See https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+*/
+extern uint64 nexus_hash_fnv1a64_begin(void);
+
+/*
+nexus_hash_fnv1a64_byte folds one byte into hash using FNV-1a 64-bit.
+*/
+extern uint64 nexus_hash_fnv1a64_byte(uint64 hash, uint8 value);
+
+/*
+nexus_hash_fnv1a64_bytes folds byte_count bytes starting at data into hash using FNV-1a 64-bit.
+
+data must not be NULL when byte_count is greater than zero. byte_count may be zero.
+*/
+extern uint64 nexus_hash_fnv1a64_bytes(uint64 hash, const void *data, uint64 byte_count);
+
+/*
+nexus_hash_fnv1a64 hashes byte_count bytes starting at data from the FNV-1a 64-bit offset basis.
+
+Equivalent to nexus_hash_fnv1a64_bytes(nexus_hash_fnv1a64_begin(), data, byte_count).
+data must not be NULL when byte_count is greater than zero. byte_count may be zero.
+*/
+extern uint64 nexus_hash_fnv1a64(const void *data, uint64 byte_count);
+
 /* ---------------------------------------------------------------------------- */
 /* IDs                                                                          */
 /* ---------------------------------------------------------------------------- */
