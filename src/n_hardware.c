@@ -10,6 +10,12 @@
 #  include <intrin.h>
 #endif
 
+#if (NEXUS_ARCH == NEXUS_ARCH_X86_64 || NEXUS_ARCH == NEXUS_ARCH_X86_32)
+#  if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
+#    include <xmmintrin.h>
+#  endif
+#endif
+
 #if NEXUS_PLATFORM_POSIX
 #  include <sys/resource.h>
 #endif
@@ -741,5 +747,40 @@ NError nexus_hardware_cache_misses_get(uint64 *count) {
   return n_hardware_linux_cache_miss_perf_event_read(count);
 #else
   return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+uint32 nexus_hardware_floating_point_denormal_flush_push(void) {
+#if (NEXUS_ARCH == NEXUS_ARCH_X86_64 || NEXUS_ARCH == NEXUS_ARCH_X86_32)
+  /*
+  MXCSR bit 15 = FTZ (flush denormal results to zero).
+  MXCSR bit 6  = DAZ (treat denormal operands as zero).
+  Encapsulated here so callers never include xmmintrin/pmmintrin directly.
+  */
+#  if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
+  {
+    unsigned int previous;
+
+    previous = _mm_getcsr();
+    _mm_setcsr(previous | 0x8040u);
+    return (uint32)previous;
+  }
+#  else
+  return 0u;
+#  endif
+#else
+  return 0u;
+#endif
+}
+
+void nexus_hardware_floating_point_denormal_flush_pop(uint32 previous_control) {
+#if (NEXUS_ARCH == NEXUS_ARCH_X86_64 || NEXUS_ARCH == NEXUS_ARCH_X86_32)
+#  if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
+  _mm_setcsr((unsigned int)previous_control);
+#  else
+  (void)previous_control;
+#  endif
+#else
+  (void)previous_control;
 #endif
 }

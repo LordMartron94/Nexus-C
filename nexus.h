@@ -3098,3 +3098,22 @@ Returns NEXUS_ERROR_PERMISSION_DENIED when the kernel denies PMU access.
 Returns NEXUS_ERROR_IO when the platform query fails.
 */
 extern NError nexus_hardware_cache_misses_get(uint64 *count);
+
+/*
+nexus_hardware_floating_point_denormal_flush_push enables FTZ/DAZ on the calling
+thread and returns the previous floating-point control word so
+nexus_hardware_floating_point_denormal_flush_pop can restore it.
+
+On x86/x86_64 this reads/writes SSE MXCSR (FTZ bit 15, DAZ bit 6). On other
+architectures both push and pop are no-ops and push returns 0.
+
+Use as a scoped pair around hot decay loops so the rest of the process keeps
+IEEE subnormal behavior.
+*/
+extern uint32 nexus_hardware_floating_point_denormal_flush_push(void);
+
+/*
+nexus_hardware_floating_point_denormal_flush_pop restores the floating-point
+control word previously returned by nexus_hardware_floating_point_denormal_flush_push.
+*/
+extern void nexus_hardware_floating_point_denormal_flush_pop(uint32 previous_control);
