@@ -2916,18 +2916,51 @@ static void nexus_bits_uint64_set(uint64 *value, uint32 bit_index, boolean bit_v
 }
 
 /*
+nexus_bits_uint64_clear_lowest_set clears the least-significant set bit of value (Kernighan).
+*/
+static uint64 nexus_bits_uint64_clear_lowest_set(uint64 value) /* NOLINT */ {
+  return value & (value - 1ULL);
+}
+
+/*
+nexus_bits_uint64_trailing_zeros returns the 0-based index of the least-significant set bit
+in value (0..63). value must be non-zero. Prefer this for bitboard piece iteration instead of
+scanning empty squares.
+*/
+static uint32 nexus_bits_uint64_trailing_zeros(uint64 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(value != 0ULL);
+
+#if defined(__GNUC__) || defined(__clang__)
+  return (uint32)__builtin_ctzll(value);
+#else
+  {
+    static const uint8 index64[64] = {0,  47, 1,  56, 48, 27, 2,  60, 57, 49, 41, 37, 28, 16, 3,  61, 54, 58, 35, 52, 50, 42,
+                                      21, 44, 38, 32, 29, 23, 17, 11, 4,  62, 46, 55, 26, 59, 40, 36, 15, 53, 34, 51, 20, 43,
+                                      31, 22, 10, 45, 25, 39, 14, 33, 19, 30, 9,  24, 13, 18, 8,  12, 7,  6,  5,  63};
+
+    return (uint32)index64[(uint32)(((value ^ (value - 1ULL)) * 0x03f79d71b4cb0a89ULL) >> 58)];
+  }
+#endif
+}
+
+/*
 nexus_bits_uint64_popcount returns the number of set bits in value.
 */
 static uint32 nexus_bits_uint64_popcount(uint64 value) /* NOLINT */ {
-  uint32 count;
+#if defined(__GNUC__) || defined(__clang__)
+  return (uint32)__builtin_popcountll(value);
+#else
+  {
+    uint32 count;
 
-  count = 0;
-  while (value != 0ULL) {
-    value &= value - 1ULL;
-    count++;
+    count = 0;
+    while (value != 0ULL) {
+      value = nexus_bits_uint64_clear_lowest_set(value);
+      count++;
+    }
+    return count;
   }
-
-  return count;
+#endif
 }
 
 /*
@@ -3021,12 +3054,29 @@ static uint64 nexus_hash_zobrist_key_get(const NexusHashZobristTable *table, uin
 }
 
 /*
-nexus_hash_zobrist_hash_xor returns hash XOR key.
+nexus_hash_zobrist_hash_update XORs key into hash.
 
-This is the incremental Zobrist update used when adding or removing a feature from a position.
+This is the incremental Zobrist step: adding and removing a feature use the same
+operation because XOR is involutory. Prefer this over recomputing a full position hash
+during search make/unmake.
+*/
+static uint64 nexus_hash_zobrist_hash_update(uint64 hash, uint64 key) /* NOLINT */ {
+  return hash ^ key;
+}
+
+/*
+nexus_hash_zobrist_hash_replace removes remove_key and adds add_key in one update
+(hash ^ remove_key ^ add_key). Use when a feature changes identity (piece relocation).
+*/
+static uint64 nexus_hash_zobrist_hash_replace(uint64 hash, uint64 remove_key, uint64 add_key) /* NOLINT */ {
+  return nexus_hash_zobrist_hash_update(nexus_hash_zobrist_hash_update(hash, remove_key), add_key);
+}
+
+/*
+nexus_hash_zobrist_hash_xor is an alias of nexus_hash_zobrist_hash_update.
 */
 static uint64 nexus_hash_zobrist_hash_xor(uint64 hash, uint64 key) /* NOLINT */ {
-  return hash ^ key;
+  return nexus_hash_zobrist_hash_update(hash, key);
 }
 
 /*
@@ -3042,7 +3092,7 @@ static uint64 nexus_hash_zobrist_hash_from_keys(const uint64 *keys, uint64 key_c
 
   hash = 0;
   for (i = 0; i < key_count; i++) {
-    hash = nexus_hash_zobrist_hash_xor(hash, keys[i]);
+    hash = nexus_hash_zobrist_hash_update(hash, keys[i]);
   }
 
   return hash;
