@@ -2993,28 +2993,60 @@ Each uint64 key is assembled little-endian from eight bytes produced by fill.
 table and fill must not be NULL. table->keys must not be NULL when table->key_count is greater
 than zero. key_count may be zero.
 */
-extern void nexus_hash_zobrist_table_fill(NexusHashZobristTable *table, NexusHashEntropyFillCallback *fill, void *user_data);
+static void nexus_hash_zobrist_table_fill(NexusHashZobristTable *table, NexusHashEntropyFillCallback *fill, void *user_data) /* NOLINT */ {
+  uint64 i;
+  byte   key_bytes[8];
+
+  NEXUS_ASSERT_DEBUG(table != NULL);
+  NEXUS_ASSERT_DEBUG(fill != NULL);
+  NEXUS_ASSERT_DEBUG(table->key_count == 0 || table->keys != NULL);
+
+  for (i = 0; i < table->key_count; i++) {
+    fill(user_data, key_bytes, 8);
+    table->keys[i] = nexus_bits_uint64_from_bytes_lsb(key_bytes);
+  }
+}
 
 /*
 nexus_hash_zobrist_key_get returns the key at index.
 
 table must not be NULL. index must be less than table->key_count.
 */
-extern uint64 nexus_hash_zobrist_key_get(const NexusHashZobristTable *table, uint64 index);
+static uint64 nexus_hash_zobrist_key_get(const NexusHashZobristTable *table, uint64 index) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(table != NULL);
+  NEXUS_ASSERT_DEBUG(table->keys != NULL);
+  NEXUS_ASSERT_MESSAGE_DEBUG(index < table->key_count, "Zobrist key index out of range.");
+
+  return table->keys[index];
+}
 
 /*
 nexus_hash_zobrist_hash_xor returns hash XOR key.
 
 This is the incremental Zobrist update used when adding or removing a feature from a position.
 */
-extern uint64 nexus_hash_zobrist_hash_xor(uint64 hash, uint64 key);
+static uint64 nexus_hash_zobrist_hash_xor(uint64 hash, uint64 key) /* NOLINT */ {
+  return hash ^ key;
+}
 
 /*
 nexus_hash_zobrist_hash_from_keys XORs key_count keys starting at keys into an initial zero hash.
 
 keys must not be NULL when key_count is greater than zero.
 */
-extern uint64 nexus_hash_zobrist_hash_from_keys(const uint64 *keys, uint64 key_count);
+static uint64 nexus_hash_zobrist_hash_from_keys(const uint64 *keys, uint64 key_count) /* NOLINT */ {
+  uint64 hash;
+  uint64 i;
+
+  NEXUS_ASSERT_DEBUG(key_count == 0 || keys != NULL);
+
+  hash = 0;
+  for (i = 0; i < key_count; i++) {
+    hash = nexus_hash_zobrist_hash_xor(hash, keys[i]);
+  }
+
+  return hash;
+}
 
 /*
 nexus_hash_fnv1a64_begin returns the FNV-1a 64-bit offset basis for a new hash stream.
