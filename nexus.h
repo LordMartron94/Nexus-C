@@ -685,22 +685,25 @@ If unset, the debugger falls back to NEXUS_MEMORY_STACK_GUESS_SIZE when guessing
 extern void nexus_debug_mem_stack_pointer_set(void *lowest_stack_pointer, size_t stack_size_in_bytes);
 
 /*
-nexus_debug_mem_active enables or disables recording of new allocation statistics.
-Existing tracked blocks remain in the table; only subsequent malloc, calloc, and realloc calls
-respect the active flag for byte totals and allocation counts.
+nexus_debug_mem_active enables or disables the full memory debugger at runtime.
+
+When FALSE, malloc/calloc/realloc/free bypass over-allocation, canaries, and the tracking table
+(except free/realloc of blocks that were still tracked from a prior active period), and
+nexus_memory_bytes_copy/set/clear skip allocation queries. When TRUE, full tracking resumes for
+new allocations. Prefer this over rebuilding with NEXUS_MEMORY_DEBUG_ENABLED 0 when the debugger
+must stay available but hot paths need libc cost.
 */
 extern void nexus_debug_mem_active(boolean active);
 
 /*
-nexus_debug_mem_active_get returns whether new allocation statistics are currently recorded.
+nexus_debug_mem_active_get returns whether the full memory debugger is currently active.
 */
 extern boolean nexus_debug_mem_active_get(void);
 
 /*
-nexus_debug_mem_active_exchange sets the active flag and returns the previous value.
+nexus_debug_mem_active_exchange sets the debugger active flag and returns the previous value.
 
-Use to temporarily suspend memory-debug statistics around a hot path without assuming the
-prior state:
+Use to temporarily suspend the full debugger around a hot path without assuming the prior state:
   previous = nexus_debug_mem_active_exchange(FALSE);
   ... work ...
   (void)nexus_debug_mem_active_exchange(previous);
@@ -765,7 +768,7 @@ extern boolean nexus_debug_mem_comment(void *buf, char *comment);
 
 /*
 NexusDebugMemSummary holds aggregate allocation statistics recorded by the memory debugger.
-Counters respect nexus_debug_mem_active and are cleared by nexus_debug_mem_reset.
+Counters only advance while nexus_debug_mem_active is TRUE and are cleared by nexus_debug_mem_reset.
 */
 typedef struct NexusDebugMemSummary {
   size_t     live_bytes;
@@ -859,7 +862,7 @@ extern void *nexus_debug_mem_query_allocation(void *pointer, uint32 *line, char 
 nexus_debug_mem_query_is_allocated checks whether size bytes at pointer are inside a live block.
 Returns FALSE when the range extends past the allocation, overlaps freed memory, or lies on the
 stack. When ignore_not_found is TRUE, an untracked pointer returns FALSE without a warning;
-otherwise a warning is printed first.
+otherwise a warning is printed first. When the debugger is inactive, returns TRUE without scanning.
 */
 extern boolean nexus_debug_mem_query_is_allocated(const void *pointer, size_t size, boolean ignore_not_found);
 
