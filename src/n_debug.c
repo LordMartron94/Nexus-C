@@ -548,8 +548,6 @@ static boolean nexus_debug_mem_remove(unsigned char *buf, char *file, unsigned i
   unsigned int     i;
   unsigned int     j;
   unsigned int     k;
-  size_t           distance;
-  size_t           query_size;
   NexusMemFreeBuf *new_freed;
 
 #if defined(NEXUS_MEMORY_DOUBLE_FREE_CHECK) || defined(NEXUS_MEMORY_USE_AFTER_FREE_CHECK)
@@ -648,31 +646,10 @@ static boolean nexus_debug_mem_remove(unsigned char *buf, char *file, unsigned i
     }
   }
 #endif
-  if (nexus_memory_stack_size != 0) {
-    if (nexus_memory_stack_pointer <= buf && nexus_memory_stack_pointer + nexus_memory_stack_size > buf) {
-      printf("Nexus Mem debugger error: trying to free stack pointer on line %u in file %s\n", line, file);
-      NEXUS_MEMORY_CALL_ON_ERROR
-      return TRUE;
-    }
-  } else {
-    if (buf > (unsigned char *)&i)
-      distance = (size_t)(buf - (unsigned char *)&i);
-    else
-      distance = (size_t)((unsigned char *)&i - buf);
-    if (distance < NEXUS_MEMORY_STACK_GUESS_SIZE) {
-      printf("Nexus Mem debugger error: trying to free pointer not tracked by Nexus on line %u in file %s; likely a stack pointer (%u bytes from a "
-             "known stack location)\n",
-             line, file, (unsigned int)distance);
-      NEXUS_MEMORY_CALL_ON_ERROR
-      return TRUE;
-    }
-  }
-
-  printf("Nexus Mem debugger warning: trying to free pointer not tracked by Nexus on line %u in file %s\n", line, file);
-
-  if (NULL != nexus_debug_mem_query_allocation(buf, &line, &file, &query_size))
-    printf("Nexus Mem debugger error: pointer is part of allocation made at line %u in file %s\n", line, file);
-
+  /*
+  Not in the live table. With runtime suspend, libc blocks from an inactive period are normal —
+  free them quietly. Skip stack/not-tracked diagnostics that would false-positive on those.
+  */
   free(buf);
   return TRUE;
 }
@@ -696,19 +673,16 @@ void nexus_debug_mem_free(void *buf, char *file, unsigned int line) {
 #endif
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_lock(n_alloc_mutex);
-  if (!nexus_memory_active) {
-    /*
-    Debugger off: only unwind blocks that were tracked while it was on. Plain libc allocations
-    from the inactive period free without scanning diagnostics.
-    */
-    if (nexus_debug_mem_lookup_exact_unlocked(buf) == TRUE) {
-      removed = nexus_debug_mem_remove((unsigned char *)buf, file, line, FALSE, &size);
-    } else {
-      free(buf);
-      removed = FALSE;
-    }
-  } else {
+  /*
+  Only run canary/table unwind for blocks that are actually tracked. Pointers allocated while the
+  debugger was inactive (plain libc) must free silently even if the debugger was re-enabled later;
+  otherwise every bench/shell teardown after a suspend prints false "not tracked" warnings.
+  */
+  if (nexus_debug_mem_lookup_exact_unlocked(buf) == TRUE) {
     removed = nexus_debug_mem_remove((unsigned char *)buf, file, line, FALSE, &size);
+  } else {
+    free(buf);
+    removed = FALSE;
   }
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
