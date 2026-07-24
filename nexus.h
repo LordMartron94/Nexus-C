@@ -527,6 +527,17 @@ static boolean nexus_real_is_finite(f_real value) /* NOLINT */ {
 }
 
 /*
+nexus_real_finite_or_zero returns value when finite, otherwise 0.
+Use to scrub NaN/Inf before they poison accumulators or persisted LTM.
+*/
+static f_real nexus_real_finite_or_zero(f_real value) /* NOLINT */ {
+  if (nexus_real_is_finite(value) != TRUE) {
+    return 0.0;
+  }
+  return value;
+}
+
+/*
 nexus_real32_round_to_int32 rounds then converts to int32. Debug builds assert range.
 */
 extern int32 nexus_real32_round_to_int32(real32 value, NexusRealRoundMode mode);
