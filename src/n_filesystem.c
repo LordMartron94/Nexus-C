@@ -132,6 +132,103 @@ NError nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_path) {
   return nexus_errors_from_errno();
 }
 
+NError nexus_filesystem_file_ensure_parent_directory(NexusPath file_path) {
+  NexusPath parent_path;
+
+  if (file_path.length == 0u || file_path.buffer[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  parent_path = nexus_paths_path_parent(file_path);
+  if (parent_path.length == 0u || parent_path.buffer[0] == '\0') {
+    return NEXUS_ERROR_NONE;
+  }
+
+  return nexus_filesystem_directory_create_parents(parent_path);
+}
+
+#ifndef NEXUS_FILESYSTEM_COPY_CHUNK_SIZE
+#  define NEXUS_FILESYSTEM_COPY_CHUNK_SIZE (65536u)
+#endif
+
+NError nexus_filesystem_file_copy(NexusPath source_path, NexusPath destination_path) {
+  NexusFileHandle *source_handle;
+  NexusFileHandle *destination_handle;
+  FILE            *source_file;
+  byte             chunk[NEXUS_FILESYSTEM_COPY_CHUNK_SIZE];
+  boolean          source_exists;
+  NError           status;
+
+  if (source_path.length == 0u || destination_path.length == 0u || source_path.buffer[0] == '\0' || destination_path.buffer[0] == '\0') {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  if (nexus_strings_string_equals(source_path.buffer, destination_path.buffer) == TRUE) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  status = nexus_filesystem_path_exists(source_path, &source_exists);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+  if (source_exists != TRUE) {
+    return NEXUS_ERROR_FILE_NOT_FOUND;
+  }
+
+  status = nexus_filesystem_file_ensure_parent_directory(destination_path);
+  if (status != NEXUS_ERROR_NONE) {
+    return status;
+  }
+
+  source_handle = NULL;
+  status        = nexus_filesystem_file_open(source_path, NFM_READ_BINARY, &source_handle);
+  if (status != NEXUS_ERROR_NONE || source_handle == NULL) {
+    return status;
+  }
+
+  destination_handle = NULL;
+  status             = nexus_filesystem_file_open(destination_path, NFM_WRITE_BINARY, &destination_handle);
+  if (status != NEXUS_ERROR_NONE || destination_handle == NULL) {
+    (void)nexus_filesystem_file_close(source_handle);
+    return status;
+  }
+
+  source_file = (FILE *)source_handle;
+  for (;;) {
+    size_t     read_count;
+    uint_large written_count;
+
+    read_count = fread(chunk, 1, (size_t)NEXUS_FILESYSTEM_COPY_CHUNK_SIZE, source_file);
+    if (read_count > 0u) {
+      written_count = 0u;
+      status        = nexus_filesystem_file_write(destination_handle, chunk, (uint_large)read_count, &written_count);
+      if (status != NEXUS_ERROR_NONE || written_count != (uint_large)read_count) {
+        if (status == NEXUS_ERROR_NONE) {
+          status = NEXUS_ERROR_IO;
+        }
+        (void)nexus_filesystem_file_close(destination_handle);
+        (void)nexus_filesystem_file_close(source_handle);
+        return status;
+      }
+    }
+
+    if (read_count < (size_t)NEXUS_FILESYSTEM_COPY_CHUNK_SIZE) {
+      if (ferror(source_file) != 0) {
+        status = nexus_errors_from_errno();
+        (void)nexus_filesystem_file_close(destination_handle);
+        (void)nexus_filesystem_file_close(source_handle);
+        return status;
+      }
+      break;
+    }
+  }
+
+  status = nexus_filesystem_file_flush(destination_handle);
+  (void)nexus_filesystem_file_close(destination_handle);
+  (void)nexus_filesystem_file_close(source_handle);
+  return status;
+}
+
 NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length,
                                   uint_large *out_bytes_read) {
   size_t read_count;

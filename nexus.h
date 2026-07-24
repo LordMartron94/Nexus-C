@@ -2169,6 +2169,22 @@ nexus_filesystem_file_rename renames/moves a file.
 extern NError nexus_filesystem_file_rename(NexusPath old_path, NexusPath new_path);
 
 /*
+nexus_filesystem_file_ensure_parent_directory creates every missing parent directory of file_path.
+
+file_path is treated as a file path: only its parent directory tree is created, not file_path itself.
+Returns NEXUS_ERROR_NONE when the parent already exists as a directory.
+*/
+extern NError nexus_filesystem_file_ensure_parent_directory(NexusPath file_path);
+
+/*
+nexus_filesystem_file_copy copies the contents of source_path onto destination_path.
+
+Creates missing parent directories of destination_path. Overwrites destination_path when it already
+exists. Returns NEXUS_ERROR_FILE_NOT_FOUND when source_path is absent.
+*/
+extern NError nexus_filesystem_file_copy(NexusPath source_path, NexusPath destination_path);
+
+/*
 nexus_filesystem_file_write writes bytes to an opened file.
 
 Writes the number of bytes written to out_bytes_written. A short write without a
