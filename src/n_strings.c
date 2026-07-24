@@ -34,6 +34,55 @@ static NexusStringFormatResult p_string_format_from_stb_truncated(int stb_result
   return p_string_format_result_create(required_length, required_length, FALSE, TRUE);
 }
 
+/*
+If truncation cut mid-codepoint, drop the incomplete trailing UTF-8 lead/continuations.
+Prevents lone 0xCE (etc.) from rendering as Latin-1 "Î" and skewing display width.
+*/
+static void n_strings_utf8_clip_incomplete_tail(char *string) {
+  uint_large      length;
+  uint_large      lead_index;
+  unsigned char   lead;
+  uint32          expected;
+
+  if (string == NULL) {
+    return;
+  }
+  length = nexus_strings_string_length(string);
+  while (length > 0U) {
+    lead_index = length;
+    while (lead_index > 0U && (((unsigned char)string[lead_index - 1U]) & 0xC0U) == 0x80U) {
+      lead_index = lead_index - 1U;
+    }
+    if (lead_index == length) {
+      lead = (unsigned char)string[length - 1U];
+      if (lead < 0x80U) {
+        return;
+      }
+      /* Lone lead byte at end — incomplete sequence. */
+      string[length - 1U] = '\0';
+      length              = length - 1U;
+      continue;
+    }
+    lead = (unsigned char)string[lead_index];
+    if ((lead & 0xE0U) == 0xC0U) {
+      expected = 2U;
+    } else if ((lead & 0xF0U) == 0xE0U) {
+      expected = 3U;
+    } else if ((lead & 0xF8U) == 0xF0U) {
+      expected = 4U;
+    } else {
+      string[lead_index] = '\0';
+      length             = lead_index;
+      continue;
+    }
+    if ((length - lead_index) >= (uint_large)expected) {
+      return;
+    }
+    string[lead_index] = '\0';
+    length             = lead_index;
+  }
+}
+
 static NexusStringFormatResult p_string_format_result_from_required_length(int stb_result) {
   uint_large required_length;
 
@@ -88,15 +137,21 @@ NexusStringFormatResult nexus_strings_vstring_format(char *string, uint_large ma
 }
 
 NexusStringFormatResult nexus_strings_vstring_format_with_truncation(char *string, uint_large max_string_length, const char *format, va_list args) {
-  int32 count;
-  int   stb_result;
+  int32                   count;
+  int                     stb_result;
+  NexusStringFormatResult result;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
   NEXUS_ASSERT_DEBUG(format != NULL);
   count = p_string_format_max_length_as_count(max_string_length);
 
   stb_result = stbsp_vsnprintf(string, count, format, args);
-  return p_string_format_from_stb_truncated(stb_result, max_string_length);
+  result     = p_string_format_from_stb_truncated(stb_result, max_string_length);
+  if (result.truncated == TRUE) {
+    n_strings_utf8_clip_incomplete_tail(string);
+    result.written_length = nexus_strings_string_length(string);
+  }
+  return result;
 }
 
 NexusStringFormatResult nexus_strings_vstring_format_required_length(const char *format, va_list args) {
@@ -452,8 +507,9 @@ NexusStringFormatResult nexus_strings_string_copy_exact(char *dest, uint_large d
 }
 
 NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, uint_large dest_max_len, const char *src) {
-  uint_large src_length;
-  uint_large copy_length;
+  uint_large              src_length;
+  uint_large              copy_length;
+  NexusStringFormatResult result;
 
   NEXUS_ASSERT_DEBUG(dest != NULL);
   NEXUS_ASSERT_DEBUG(dest_max_len > 0);
@@ -471,7 +527,9 @@ NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, ui
   dest[copy_length] = '\0';
 
   if (src_length >= dest_max_len) {
-    return p_string_format_result_create(copy_length, src_length, TRUE, TRUE);
+    n_strings_utf8_clip_incomplete_tail(dest);
+    result = p_string_format_result_create(nexus_strings_string_length(dest), src_length, TRUE, TRUE);
+    return result;
   }
 
   return p_string_format_result_create(src_length, src_length, FALSE, TRUE);
@@ -1117,6 +1175,18 @@ static uint32 n_strings_codepoint_display_width(uint32 codepoint) {
 
   if (codepoint <= 0x7EU) {
     return 1;
+  }
+
+  /*
+  Combining marks (e.g. U+0304 on δ̄) occupy no extra terminal column. Counting them
+  as width 1 shifts every subsequent tabular cell by one (and looks like "Î" when a
+  truncated UTF-8 lead is also left behind).
+  */
+  if ((codepoint >= 0x0300U && codepoint <= 0x036FU) || (codepoint >= 0x1AB0U && codepoint <= 0x1AFFU) ||
+      (codepoint >= 0x1DC0U && codepoint <= 0x1DFFU) || (codepoint >= 0x20D0U && codepoint <= 0x20FFU) ||
+      (codepoint >= 0xFE20U && codepoint <= 0xFE2FU) || (codepoint >= 0xFE00U && codepoint <= 0xFE0FU) ||
+      (codepoint >= 0x200BU && codepoint <= 0x200DU) || codepoint == 0xFEFFU) {
+    return 0;
   }
 
   if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||

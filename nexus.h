@@ -1266,8 +1266,9 @@ string must not be NULL.
 /*
 nexus_strings_display_width_get returns the terminal column width of text.
 
-ANSI SGR sequences (ESC [ ... m) contribute zero width. UTF-8 codepoints use a
-single column unless they fall in a common double-width range (CJK/fullwidth).
+ANSI SGR sequences (ESC [ ... m) contribute zero width. Combining marks (e.g. the
+macron on δ̄) contribute zero width. Other UTF-8 codepoints use a single column
+unless they fall in a common double-width range (CJK/fullwidth).
 */
 extern uint32 nexus_strings_display_width_get(const char *text);
 
