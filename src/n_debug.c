@@ -160,12 +160,31 @@ void nexus_debug_mem_stack_pointer_set(void *lowest_stack_pointer, size_t stack_
   nexus_memory_stack_size    = stack_size_in_bytes;
 }
 
-void nexus_debug_mem_active(boolean active) {
+boolean nexus_debug_mem_active_exchange(boolean active) {
+  boolean previous;
+
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_lock(n_alloc_mutex);
+  previous            = nexus_memory_active;
   nexus_memory_active = active;
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_unlock(n_alloc_mutex);
+  return previous;
+}
+
+void nexus_debug_mem_active(boolean active) {
+  (void)nexus_debug_mem_active_exchange(active);
+}
+
+boolean nexus_debug_mem_active_get(void) {
+  boolean active;
+
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_lock(n_alloc_mutex);
+  active = nexus_memory_active;
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_unlock(n_alloc_mutex);
+  return active;
 }
 
 void nexus_debug_mem_log_callback_set(NexusDebugMemLogCallback *callback, void *user_data) {

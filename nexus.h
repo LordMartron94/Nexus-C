@@ -692,6 +692,22 @@ respect the active flag for byte totals and allocation counts.
 extern void nexus_debug_mem_active(boolean active);
 
 /*
+nexus_debug_mem_active_get returns whether new allocation statistics are currently recorded.
+*/
+extern boolean nexus_debug_mem_active_get(void);
+
+/*
+nexus_debug_mem_active_exchange sets the active flag and returns the previous value.
+
+Use to temporarily suspend memory-debug statistics around a hot path without assuming the
+prior state:
+  previous = nexus_debug_mem_active_exchange(FALSE);
+  ... work ...
+  (void)nexus_debug_mem_active_exchange(previous);
+*/
+extern boolean nexus_debug_mem_active_exchange(boolean active);
+
+/*
 NexusDebugMemLogCallback is invoked for each tracked malloc, calloc, realloc, free, and for
 nexus_memory_bytes_copy / set / clear when logging is enabled. message is fully formatted; file and
 line identify the call site.
@@ -926,6 +942,8 @@ extern void exit_crash(uint32 status_code);
 #    define nexus_debug_mem_thread_safe_init(n, m, k)
 #    define nexus_debug_mem_stack_pointer_set(n, m)
 #    define nexus_debug_mem_active(n)
+#    define nexus_debug_mem_active_get()                 TRUE
+#    define nexus_debug_mem_active_exchange(active)      TRUE
 #    define nexus_debug_mem_log_callback_set(n, m)
 #    define nexus_debug_mem_log_callback_installed_get() FALSE
 #    define nexus_debug_mem_comment(n, m)
