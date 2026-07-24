@@ -657,27 +657,34 @@ static boolean nexus_debug_mem_remove(unsigned char *buf, char *file, unsigned i
 void nexus_debug_mem_free(void *buf, char *file, unsigned int line) {
   size_t  size = 0;
   boolean removed;
+  boolean active;
+  boolean table_empty;
 
 #ifdef NEXUS_MEMORY_CHECK_ALWAYS
-  {
-    boolean active;
-
-    if (n_alloc_mutex != NULL)
-      n_alloc_mutex_lock(n_alloc_mutex);
-    active = nexus_memory_active;
-    if (n_alloc_mutex != NULL)
-      n_alloc_mutex_unlock(n_alloc_mutex);
-    if (active)
-      nexus_debug_mem_check_bounds();
-  }
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_lock(n_alloc_mutex);
+  active = nexus_memory_active;
+  if (n_alloc_mutex != NULL)
+    n_alloc_mutex_unlock(n_alloc_mutex);
+  if (active)
+    nexus_debug_mem_check_bounds();
 #endif
   if (n_alloc_mutex != NULL)
     n_alloc_mutex_lock(n_alloc_mutex);
+  active      = nexus_memory_active;
+  table_empty = (n_alloc_line_count == 0);
   /*
-  Only run canary/table unwind for blocks that are actually tracked. Pointers allocated while the
-  debugger was inactive (plain libc) must free silently even if the debugger was re-enabled later;
-  otherwise every bench/shell teardown after a suspend prints false "not tracked" warnings.
+  Debugger off with an empty tracking table: plain libc free — no lookup, no canary path.
+  Leftover tracked blocks from a prior active period still need remove() when inactive.
   */
+  if (!active && table_empty) {
+    if (n_alloc_mutex != NULL)
+      n_alloc_mutex_unlock(n_alloc_mutex);
+    free(buf);
+    (void)file;
+    (void)line;
+    return;
+  }
   if (nexus_debug_mem_lookup_exact_unlocked(buf) == TRUE) {
     removed = nexus_debug_mem_remove((unsigned char *)buf, file, line, FALSE, &size);
   } else {
