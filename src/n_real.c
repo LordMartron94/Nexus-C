@@ -221,3 +221,28 @@ uint_large nexus_real_round_to_uint_large(f_real value, NexusRealRoundMode mode)
   n_real64_assert_in_uint_large_range(rounded);
   return (uint_large)rounded;
 }
+
+f_real nexus_real_log_epsilon(void) {
+  static f_real  cached = 0.0;
+  static boolean ready  = FALSE;
+
+  if (ready != TRUE) {
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+    cached = (f_real)log((double)DBL_EPSILON);
+#else
+    cached = (f_real)logf(FLT_EPSILON);
+#endif
+    ready = TRUE;
+  }
+  return cached;
+}
+
+f_real nexus_real_softmax_logit_prune_threshold(f_real temperature) {
+  f_real floor_ln;
+
+  floor_ln = nexus_real_log_epsilon();
+  if (temperature <= 0.0 || temperature == 1.0) {
+    return floor_ln;
+  }
+  return floor_ln * temperature;
+}

@@ -408,16 +408,20 @@ typedef float f_real;
 
 #define REAL32_MAX_VAL FLT_MAX
 #define REAL32_MIN_VAL FLT_MIN
+#define REAL32_EPSILON FLT_EPSILON
 
 #define REAL64_MAX_VAL DBL_MAX
 #define REAL64_MIN_VAL DBL_MIN
+#define REAL64_EPSILON DBL_EPSILON
 
-#if NEXUS_DOUBLE_PRECISION
-#  define F_REAL_MAX REAL64_MAX_VAL
-#  define F_REAL_MIN REAL64_MIN_VAL
+#if NEXUS_FLOAT_DOUBLE_PRECISION
+#  define F_REAL_MAX     REAL64_MAX_VAL
+#  define F_REAL_MIN     REAL64_MIN_VAL
+#  define F_REAL_EPSILON REAL64_EPSILON
 #else
-#  define F_REAL_MAX REAL32_MAX_VAL
-#  define F_REAL_MIN REAL32_MIN_VAL
+#  define F_REAL_MAX     REAL32_MAX_VAL
+#  define F_REAL_MIN     REAL32_MIN_VAL
+#  define F_REAL_EPSILON REAL32_EPSILON
 #endif
 
 /* ---------------------------------------------------------------------------- */
@@ -536,6 +540,32 @@ static f_real nexus_real_finite_or_zero(f_real value) /* NOLINT */ {
   }
   return value;
 }
+
+/*
+nexus_real_epsilon returns IEEE-754 machine epsilon for the configured f_real
+(FLT_EPSILON or DBL_EPSILON). This is a silicon property, not a tunable.
+*/
+static f_real nexus_real_epsilon(void) /* NOLINT */ {
+  return (f_real)F_REAL_EPSILON;
+}
+
+/*
+nexus_real_log_epsilon returns ln(F_REAL_EPSILON), computed once and cached.
+
+After a max-shifted softmax (max logit → 0), the sum is at least e^0 = 1.
+Any exp(diff) with diff < ln(ε) is smaller than machine epsilon and cannot change
+that sum in f_real — a perfect prune floor for exp. Not chess-/search-dependent.
+
+If logits are later scaled by temperature T (exp(x/T)), the floor becomes
+T · ln(ε); compute that product once when T is set, never per leaf.
+*/
+extern f_real nexus_real_log_epsilon(void);
+
+/*
+nexus_real_softmax_logit_prune_threshold returns the max-shifted logit floor for
+skipping exp. temperature <= 0 or temperature == 1 → ln(ε); otherwise T · ln(ε).
+*/
+extern f_real nexus_real_softmax_logit_prune_threshold(f_real temperature);
 
 /*
 nexus_real32_round_to_int32 rounds then converts to int32. Debug builds assert range.
