@@ -1673,6 +1673,10 @@ typedef enum NexusTabularAlign {
 /*
 NexusTabularReport is the output sink for monospace text reports. Use the Vulkan-style two-pass
 pattern: begin with sizing_pass TRUE and buffer NULL to measure size, allocate, then render.
+
+During sizing_pass, offset accumulates the full required length (even with a NULL buffer).
+During a normal render, offset is only the number of bytes actually written; truncation does
+not inflate it (so dumping offset bytes never emits uninitialized tail garbage).
 */
 typedef struct NexusTabularReport {
   char      *buffer;
@@ -1718,6 +1722,7 @@ typedef struct NexusTabularTable {
 extern void nexus_tabular_report_begin(NexusTabularReport *report, char *buffer, uint_large max_len, boolean sizing_pass);
 extern void nexus_tabular_report_section(NexusTabularReport *report, const char *title, uint32 banner_width);
 extern void nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...);
+extern void nexus_tabular_report_vline(NexusTabularReport *report, const char *format, va_list args);
 extern void nexus_tabular_report_blank_line(NexusTabularReport *report);
 extern uint_large nexus_tabular_report_offset_get(const NexusTabularReport *report);
 extern uint64 nexus_tabular_report_required_size_get(const NexusTabularReport *report);

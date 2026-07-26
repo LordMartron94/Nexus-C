@@ -25,11 +25,15 @@ static void n_tabular_report_append_char(NexusTabularReport *report, char charac
     return;
   }
 
+  /*
+  Non-sizing: offset is written length only. Never advance past bytes actually stored, or
+  callers that dump offset bytes (Aegis file reports) will emit uninitialized tail garbage.
+  Leave one byte free for a trailing NUL planted by report consumers.
+  */
   if (report->offset + 1U < report->max_len) {
     report->buffer[report->offset] = character;
+    report->offset += 1;
   }
-
-  report->offset += 1;
 }
 
 static void n_tabular_report_append_repeat(NexusTabularReport *report, char character, uint32 count) {
@@ -40,23 +44,44 @@ static void n_tabular_report_append_repeat(NexusTabularReport *report, char char
   }
 }
 
-static void n_tabular_report_append_cstring_internal(NexusTabularReport *report, const char *text) {
-  uint_large text_length;
+static void n_tabular_report_append_bytes(NexusTabularReport *report, const char *text, uint_large text_length) {
+  uint_large writable;
+  uint_large to_copy;
 
   NEXUS_ASSERT_DEBUG(report != NULL);
-  NEXUS_ASSERT_DEBUG(text != NULL);
+  NEXUS_ASSERT_DEBUG(text != NULL || text_length == 0U);
 
-  text_length = nexus_strings_string_length(text);
+  if (text_length == 0U) {
+    return;
+  }
+
   if (report->sizing_pass != FALSE) {
     report->offset += text_length;
     return;
   }
 
-  if (report->offset + text_length < report->max_len) {
-    nexus_memory_bytes_copy(report->buffer + report->offset, text, text_length);
+  if (report->offset + 1U >= report->max_len) {
+    return;
   }
 
-  report->offset += text_length;
+  writable = report->max_len - report->offset - 1U;
+  to_copy  = text_length;
+  if (to_copy > writable) {
+    to_copy = writable;
+  }
+  if (to_copy == 0U) {
+    return;
+  }
+
+  nexus_memory_bytes_copy(report->buffer + report->offset, text, to_copy);
+  report->offset += to_copy;
+}
+
+static void n_tabular_report_append_cstring_internal(NexusTabularReport *report, const char *text) {
+  NEXUS_ASSERT_DEBUG(report != NULL);
+  NEXUS_ASSERT_DEBUG(text != NULL);
+
+  n_tabular_report_append_bytes(report, text, nexus_strings_string_length(text));
 }
 
 static void n_tabular_cell_write(NexusTabularReport *report, const char *value, uint32 width, NexusTabularAlign align) {
@@ -86,11 +111,7 @@ static void n_tabular_cell_write(NexusTabularReport *report, const char *value, 
   }
 
   if (copy_byte_length > 0U) {
-    if (report->sizing_pass == FALSE && report->offset < report->max_len &&
-        copy_byte_length < (report->max_len - report->offset)) {
-      nexus_memory_bytes_copy(report->buffer + report->offset, value, copy_byte_length);
-    }
-    report->offset += copy_byte_length;
+    n_tabular_report_append_bytes(report, value, copy_byte_length);
   }
 
   if (align == NEXUS_TABULAR_ALIGN_LEFT) {
@@ -144,38 +165,42 @@ void nexus_tabular_report_section(NexusTabularReport *report, const char *title,
   n_tabular_report_append_char(report, '\n');
 }
 
-void nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...) {
-  va_list                 args;
+void nexus_tabular_report_vline(NexusTabularReport *report, const char *format, va_list args) {
   NexusStringFormatResult format_res;
   uint_large              remaining;
 
   NEXUS_ASSERT_DEBUG(report != NULL);
   NEXUS_ASSERT_DEBUG(format != NULL);
 
-  va_start(args, format);
   if (report->sizing_pass != FALSE) {
     format_res = nexus_strings_vstring_format_required_length(format, args);
-    va_end(args);
     report->offset += format_res.required_length + 1U;
     return;
   }
 
   /*
-  Once the buffer is full, keep tracking required size via offset but never compute
-  max_len - offset (unsigned underflow) or write through buffer + offset.
+  Non-sizing: stop cleanly when full. Do not inflate offset past written bytes (that used to
+  poison file dumps). Accurate required size still comes from a sizing_pass begin.
   */
-  if (report->offset >= report->max_len) {
-    format_res = nexus_strings_vstring_format_required_length(format, args);
-    va_end(args);
-    report->offset += format_res.required_length + 1U;
+  if (report->offset + 1U >= report->max_len) {
     return;
   }
 
   remaining  = report->max_len - report->offset;
   format_res = nexus_strings_vstring_format_with_truncation(report->buffer + report->offset, remaining, format, args);
-  va_end(args);
   report->offset += format_res.written_length;
   n_tabular_report_append_char(report, '\n');
+}
+
+void nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...) {
+  va_list args;
+
+  NEXUS_ASSERT_DEBUG(report != NULL);
+  NEXUS_ASSERT_DEBUG(format != NULL);
+
+  va_start(args, format);
+  nexus_tabular_report_vline(report, format, args);
+  va_end(args);
 }
 
 void nexus_tabular_report_blank_line(NexusTabularReport *report) {
