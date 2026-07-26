@@ -435,7 +435,9 @@ The high 16 bits encode a two-character ASCII facility tag. The low 16 bits
 encode a facility-specific error code. NEXUS_ERROR_NONE (0) is success.
 
 Use nexus_errors_message_write to obtain a human-readable description of a
-NError value. Nexus only formats messages for its own 'N' 'X' facility errors.
+NError value. Nexus formats messages for its own 'N' 'X' facility. Other libraries
+register a facility formatter via nexus_errors_message_formatter_register so the
+same write path can describe their errors.
 */
 typedef uint32 NError;
 
@@ -458,6 +460,41 @@ NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NErr
 #define NEXUS_ERROR_INVALID_ARGUMENT         NEXUS_ERROR_MAKE('N', 'X', 6)
 #define NEXUS_ERROR_IO                       NEXUS_ERROR_MAKE('N', 'X', 7)
 #define NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE NEXUS_ERROR_MAKE('N', 'X', 8)
+#define NEXUS_ERROR_CAPACITY                 NEXUS_ERROR_MAKE('N', 'X', 9)
+
+/*
+NexusErrorMessageFormatter returns a human-readable description for a facility-specific
+error code. Return a stable string (typically a string literal). Return NULL when the
+code is unknown so nexus_errors_message_write can fall back to the generic "Error XX-code"
+form.
+*/
+typedef const char *NexusErrorMessageFormatter(uint16 code);
+
+/*
+NEXUS_ERROR_MESSAGE_FORMATTER_CAPACITY is the maximum number of non-Nexus facility
+formatters that may be registered at once.
+*/
+#define NEXUS_ERROR_MESSAGE_FORMATTER_CAPACITY 32
+
+/*
+nexus_errors_message_formatter_register associates formatter with the two-character
+facility tag (facility_byte_1, facility_byte_2). Libraries call this during initialization
+so nexus_errors_message_write can format their NError values.
+
+The Nexus facility ('N', 'X') is reserved and cannot be registered.
+Re-registering the same facility replaces the previous formatter.
+
+Returns NEXUS_ERROR_NONE on success.
+Returns NEXUS_ERROR_INVALID_ARGUMENT when formatter is NULL or the facility is reserved.
+Returns NEXUS_ERROR_CAPACITY when the formatter table is full and the facility is new.
+*/
+extern NError nexus_errors_message_formatter_register(char facility_byte_1, char facility_byte_2, NexusErrorMessageFormatter *formatter);
+
+/*
+nexus_errors_message_formatter_unregister removes any formatter previously registered for
+the given facility. Does nothing when no formatter is registered for that facility.
+*/
+extern void nexus_errors_message_formatter_unregister(char facility_byte_1, char facility_byte_2);
 
 /*
 nexus_errors_message_write copies a human-readable description of error into buffer,
@@ -466,6 +503,10 @@ optionally prefixed with prefix.
 When prefix is NULL or an empty string, the message is written without a prefix.
 Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL and
 buffer_max_length must be greater than zero.
+
+Known facilities (Nexus 'N' 'X', plus any registered via
+nexus_errors_message_formatter_register) produce descriptive messages. Unknown
+facilities or unknown codes within a registered facility fall back to "Error XX-code".
 */
 extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
 
