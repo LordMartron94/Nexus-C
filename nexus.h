@@ -452,6 +452,13 @@ NEXUS_ERROR_MAKE packs two ASCII facility characters and a 16-bit code into NErr
 #define NEXUS_ERROR_FACILITY_BYTE_2(err) ((char)(((err) >> 16) & 0xFF))
 #define NEXUS_ERROR_CODE(err)            ((uint16)((err) & 0xFFFF))
 
+/*
+NEXUS_ERROR_LOCAL_ID extracts the facility-local 16-bit code from an NError value
+or named error constant. Use this in formatter switch cases so the labels stay
+tied to the named constants instead of raw numeric literals.
+*/
+#define NEXUS_ERROR_LOCAL_ID(err) NEXUS_ERROR_CODE(err)
+
 #define NEXUS_ERROR_FILE_NOT_FOUND           NEXUS_ERROR_MAKE('N', 'X', 1)
 #define NEXUS_ERROR_PERMISSION_DENIED        NEXUS_ERROR_MAKE('N', 'X', 2)
 #define NEXUS_ERROR_ALREADY_EXISTS           NEXUS_ERROR_MAKE('N', 'X', 3)

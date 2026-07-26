@@ -14,23 +14,23 @@ static uint_large                       n_error_facility_formatter_count = 0;
 
 static const char *n_internal_nexus_error_message_for_code(uint16 code) {
   switch (code) {
-  case 1:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_FILE_NOT_FOUND):
     return "file not found";
-  case 2:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_PERMISSION_DENIED):
     return "permission denied";
-  case 3:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_ALREADY_EXISTS):
     return "already exists";
-  case 4:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_DIR_NOT_EMPTY):
     return "directory not empty";
-  case 5:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_DISK_FULL):
     return "disk full";
-  case 6:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_INVALID_ARGUMENT):
     return "invalid argument";
-  case 7:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_IO):
     return "I/O error";
-  case 8:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE):
     return "unsupported architecture for operation";
-  case 9:
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_CAPACITY):
     return "capacity exhausted";
   default:
     return "unknown Nexus error";
