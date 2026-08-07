@@ -1,5 +1,65 @@
 #include <stdarg.h>
+#include <stdlib.h>
 #include "../nexus.h"
+
+#define N_TABULAR_TABLE_SESSION_TAG 0x54626C52u /* 'TblR' */
+
+static void n_tabular_table_buffered_rows_release(NexusTabularTable *table) {
+  NEXUS_ASSERT_DEBUG(table != NULL);
+
+  NEXUS_FREE_IF_NOT_NULL(table->buffered_rows);
+  table->buffered_rows         = NULL;
+  table->buffered_row_capacity = 0;
+  table->buffered_row_count    = 0;
+}
+
+static void n_tabular_table_buffered_row_pointers_rebind(NexusTabularBufferedRow *row) {
+  uint32 column_i;
+
+  NEXUS_ASSERT_DEBUG(row != NULL);
+
+  for (column_i = 0; column_i < row->cell_count; column_i++) {
+    row->cell_pointers[column_i] = row->cell_values[column_i];
+  }
+}
+
+static void n_tabular_table_buffered_rows_ensure(NexusTabularTable *table, uint32 needed_count) {
+  NexusTabularBufferedRow *grown;
+  uint32                   new_capacity;
+  uint32                   row_i;
+
+  NEXUS_ASSERT_DEBUG(table != NULL);
+
+  if (needed_count <= table->buffered_row_capacity) {
+    return;
+  }
+
+  new_capacity = table->buffered_row_capacity;
+  if (new_capacity == 0U) {
+    new_capacity = NEXUS_TABULAR_BUFFERED_ROWS_INITIAL;
+  }
+
+  while (new_capacity < needed_count) {
+    uint32 doubled;
+
+    doubled = new_capacity * 2U;
+    if (doubled <= new_capacity) {
+      new_capacity = needed_count;
+      break;
+    }
+    new_capacity = doubled;
+  }
+
+  grown = (NexusTabularBufferedRow *)realloc(table->buffered_rows, (size_t)new_capacity * NEXUS_SIZEOF(NexusTabularBufferedRow));
+  NEXUS_ASSERT_MESSAGE_DEBUG(grown != NULL, "Tabular row buffer allocation failed.");
+
+  table->buffered_rows         = grown;
+  table->buffered_row_capacity = new_capacity;
+
+  for (row_i = 0; row_i < table->buffered_row_count; row_i++) {
+    n_tabular_table_buffered_row_pointers_rebind(&table->buffered_rows[row_i]);
+  }
+}
 
 static uint32 n_tabular_string_width(const char *value) {
   if (value == NULL) {
@@ -221,6 +281,15 @@ void nexus_tabular_table_begin(NexusTabularTable *table, NexusTabularReport *rep
   NEXUS_ASSERT_DEBUG(table != NULL);
   NEXUS_ASSERT_DEBUG(report != NULL);
 
+  if (table->session_tag == N_TABULAR_TABLE_SESSION_TAG) {
+    n_tabular_table_buffered_rows_release(table);
+  } else {
+    table->buffered_rows         = NULL;
+    table->buffered_row_capacity = 0;
+    table->buffered_row_count    = 0;
+  }
+
+  table->session_tag          = N_TABULAR_TABLE_SESSION_TAG;
   table->report               = report;
   table->column_count         = 0;
   table->label_width          = label_width;
@@ -228,7 +297,6 @@ void nexus_tabular_table_begin(NexusTabularTable *table, NexusTabularReport *rep
   table->header_written       = FALSE;
   table->header_deferred      = FALSE;
   table->deferred_label_title = NULL;
-  table->buffered_row_count   = 0;
 }
 
 uint32 nexus_tabular_table_column_add(NexusTabularTable *table, const char *title, uint32 width, NexusTabularAlign align) {
@@ -338,10 +406,10 @@ void nexus_tabular_table_row_stage(NexusTabularTable *table, const char *row_lab
   uint32                   column_i;
 
   NEXUS_ASSERT_DEBUG(table != NULL);
+  NEXUS_ASSERT_DEBUG(table->session_tag == N_TABULAR_TABLE_SESSION_TAG);
   NEXUS_ASSERT_DEBUG(table->header_deferred != FALSE);
   NEXUS_ASSERT_DEBUG(table->header_written == FALSE);
   NEXUS_ASSERT_DEBUG(cell_count == table->column_count);
-  NEXUS_ASSERT_MESSAGE_DEBUG(table->buffered_row_count < NEXUS_TABULAR_MAX_BUFFERED_ROWS, "Tabular row buffer overflow.");
 
   if (row_label != NULL) {
     nexus_tabular_table_label_fit(table, row_label);
@@ -350,6 +418,8 @@ void nexus_tabular_table_row_stage(NexusTabularTable *table, const char *row_lab
   for (column_i = 0; column_i < cell_count; column_i++) {
     nexus_tabular_table_column_fit(table, column_i, cell_values[column_i]);
   }
+
+  n_tabular_table_buffered_rows_ensure(table, table->buffered_row_count + 1U);
 
   buffered_row = &table->buffered_rows[table->buffered_row_count];
   if (row_label == NULL) {
@@ -391,7 +461,7 @@ void nexus_tabular_table_emit(NexusTabularTable *table) {
 
   table->header_deferred      = FALSE;
   table->deferred_label_title = NULL;
-  table->buffered_row_count   = 0;
+  n_tabular_table_buffered_rows_release(table);
 }
 
 void nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title) {
@@ -419,5 +489,9 @@ void nexus_tabular_table_row_write(NexusTabularTable *table, const char *row_lab
 
 void nexus_tabular_table_end(NexusTabularTable *table) {
   NEXUS_ASSERT_DEBUG(table != NULL);
-  (void)table;
+
+  if (table->session_tag == N_TABULAR_TABLE_SESSION_TAG) {
+    n_tabular_table_buffered_rows_release(table);
+    table->session_tag = 0;
+  }
 }

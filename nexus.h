@@ -1357,12 +1357,6 @@ Output longer than NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX - 1 characters is truncat
 extern const char *nexus_strings_string_preformat(const char *format, ...);
 
 /*
-nexus_strings_string_length gets the current length of a string.
-
-string must not be NULL.
-*/
-
-/*
 nexus_strings_display_width_get returns the terminal column width of text.
 
 ANSI SGR sequences (ESC [ ... m) contribute zero width. Combining marks (e.g. the
@@ -1377,12 +1371,6 @@ longest prefix of text whose display width is at most max_display_width. The
 prefix never splits a UTF-8 codepoint.
 */
 extern uint_large nexus_strings_display_width_prefix_length_get(const char *text, uint32 max_display_width);
-
-/*
-Checks if a string exactly starts with the provided prefix.
-
-string and prefix must not be NULL.
-*/
 
 /*
 Performs a safe, bounded copy of a string. Guarantees null-termination.
@@ -1422,54 +1410,6 @@ and truncated=TRUE with success=TRUE is returned. Otherwise, success=TRUE with w
 equal to required_length.
 */
 extern NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, uint_large dest_max_len, const char *src);
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-
-/*
-Checks if two strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare`
-*/
-
-/*
-Checks if two unsigned strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare_unsigned`
-*/
-
-/*
-Checks if two mixed strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare_mixed`
-*/
-
-/*
-Checks if two mixed strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
-*/
 
 /*
 nexus_strings_string_parse_uint8 parses a base-10 unsigned integer string into out_value.
@@ -1661,7 +1601,7 @@ extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, 
 #define NEXUS_TABULAR_DEFAULT_LABEL_WIDTH 22
 #define NEXUS_TABULAR_DEFAULT_BANNER_WIDTH  97
 #define NEXUS_TABULAR_MAX_COLUMNS           32
-#define NEXUS_TABULAR_MAX_BUFFERED_ROWS     64
+#define NEXUS_TABULAR_BUFFERED_ROWS_INITIAL 16
 #define NEXUS_TABULAR_MAX_LABEL_LENGTH      64
 #define NEXUS_TABULAR_MAX_CELL_LENGTH       128
 
@@ -1705,6 +1645,8 @@ dash separators, and aligned data rows. Column widths come from the declared wid
 length, and any values passed to column_fit before the header is written.
 
 When header emission is deferred, rows are staged with column_fit and label_fit until emit is called.
+Staged rows live in a heap buffer that grows as needed (no fixed row cap). begin/emit/end own that
+buffer; call end (or emit) before the table goes out of scope if rows were staged.
 */
 typedef struct NexusTabularTable {
   NexusTabularReport      *report;
@@ -1715,8 +1657,10 @@ typedef struct NexusTabularTable {
   boolean                  header_written;
   boolean                  header_deferred;
   const char              *deferred_label_title;
-  NexusTabularBufferedRow  buffered_rows[NEXUS_TABULAR_MAX_BUFFERED_ROWS];
+  NexusTabularBufferedRow *buffered_rows;
   uint32                   buffered_row_count;
+  uint32                   buffered_row_capacity;
+  uint32                   session_tag;
 } NexusTabularTable;
 
 extern void nexus_tabular_report_begin(NexusTabularReport *report, char *buffer, uint_large max_len, boolean sizing_pass);
