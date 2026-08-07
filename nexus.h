@@ -38,19 +38,19 @@ These typedefs have (in part) been sourced from Eskil Steenberg's Forge.
 #    endif
 #  elif defined(__FreeBSD__)
 #    define NEXUS_PLATFORM_FREEBSD 1
-#    define NEXUS_PLATFORM_BSD 1
+#    define NEXUS_PLATFORM_BSD     1
 #  elif defined(__NetBSD__)
 #    define NEXUS_PLATFORM_NETBSD 1
-#    define NEXUS_PLATFORM_BSD 1
+#    define NEXUS_PLATFORM_BSD    1
 #  elif defined(__OpenBSD__)
 #    define NEXUS_PLATFORM_OPENBSD 1
-#    define NEXUS_PLATFORM_BSD 1
+#    define NEXUS_PLATFORM_BSD     1
 #  elif defined(__DragonFly__)
 #    define NEXUS_PLATFORM_DRAGONFLY 1
-#    define NEXUS_PLATFORM_BSD 1
+#    define NEXUS_PLATFORM_BSD       1
 #  elif defined(__bsdi__) || defined(__bsdi)
 #    define NEXUS_PLATFORM_BSDI 1
-#    define NEXUS_PLATFORM_BSD 1
+#    define NEXUS_PLATFORM_BSD  1
 #  elif defined(__linux__)
 #    define NEXUS_PLATFORM_LINUX 1
 #  elif defined(__unix__) || defined(__unix)
@@ -238,11 +238,11 @@ NEXUS_ARCHITECTURE_BITS_NATIVE is the detected host width without overrides.
 NEXUS_ARCHITECTURE_BITS is the effective width used by Nexus (may be forced to 32).
 NEXUS_ARCHITECTURE_FORCED_32_BIT is TRUE when NEXUS_FORCE_32_BIT is active.
 */
-#if defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || defined(__amd64__) || \
+#if defined(_WIN64) || defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || defined(__amd64__) ||                   \
     defined(__riscv64) || (defined(__riscv_xlen) && __riscv_xlen == 64)
 #  define NEXUS_ARCHITECTURE_BITS_NATIVE 64
-#elif defined(_WIN32) || defined(__i386__) || defined(_M_IX86) || defined(__arm__) || defined(__ARMEL__) || defined(__ARMEB__) || \
-      defined(__riscv32) || (defined(__riscv_xlen) && __riscv_xlen == 32)
+#elif defined(_WIN32) || defined(__i386__) || defined(_M_IX86) || defined(__arm__) || defined(__ARMEL__) || defined(__ARMEB__) ||                    \
+    defined(__riscv32) || (defined(__riscv_xlen) && __riscv_xlen == 32)
 #  define NEXUS_ARCHITECTURE_BITS_NATIVE 32
 #else
 #  if defined(ULONG_MAX) && (ULONG_MAX > 4294967295UL)
@@ -1023,8 +1023,8 @@ extern void exit_crash(uint32 status_code);
 #    define nexus_debug_mem_thread_safe_init(n, m, k)
 #    define nexus_debug_mem_stack_pointer_set(n, m)
 #    define nexus_debug_mem_active(n)
-#    define nexus_debug_mem_active_get()                 TRUE
-#    define nexus_debug_mem_active_exchange(active)      TRUE
+#    define nexus_debug_mem_active_get()            TRUE
+#    define nexus_debug_mem_active_exchange(active) TRUE
 #    define nexus_debug_mem_log_callback_set(n, m)
 #    define nexus_debug_mem_log_callback_installed_get() FALSE
 #    define nexus_debug_mem_comment(n, m)
@@ -1042,10 +1042,10 @@ extern void exit_crash(uint32 status_code);
 
 #endif
 
-#define NEXUS_FREE_IF_NOT_NULL(ptr) \
-  if ((ptr) != NULL) { \
-    free((ptr)); \
-  } \
+#define NEXUS_FREE_IF_NOT_NULL(ptr)                                                                                                                  \
+  if ((ptr) != NULL) {                                                                                                                               \
+    free((ptr));                                                                                                                                     \
+  }
 
 #if NEXUS_EXIT_CRASH_ENABLED
 
@@ -1064,7 +1064,7 @@ extern void exit_crash(uint32 status_code);
 /* ---------------------------------------------------------------------------- */
 
 #ifndef NEXUS_VERSION_PACK
-#  define NEXUS_VERSION_PACK(variant, major, minor, patch)                                                                                         \
+#  define NEXUS_VERSION_PACK(variant, major, minor, patch)                                                                                           \
     ((NexusSemanticVersion)(((NexusSemanticVersion)(variant) & 0xFFFFu) << 48) | (((NexusSemanticVersion)(major) & 0xFFFFu) << 32) |                 \
      (((NexusSemanticVersion)(minor) & 0xFFFFu) << 16) | ((NexusSemanticVersion)(patch) & 0xFFFFu))
 #endif
@@ -1341,8 +1341,7 @@ extern NexusStringFormatResult nexus_strings_percent_format_f_real_precision(cha
 nexus_strings_string_replace_non_alphanumeric copies src into dest, replacing each character that is not
 an ASCII letter or digit with replacement. dest is always null-terminated within dest_max_len.
 */
-extern NexusStringFormatResult nexus_strings_string_replace_non_alphanumeric(char *dest, uint_large dest_max_len, const char *src,
-                                                                             char replacement);
+extern NexusStringFormatResult nexus_strings_string_replace_non_alphanumeric(char *dest, uint_large dest_max_len, const char *src, char replacement);
 
 #ifndef NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX
 #  define NEXUS_STRINGS_PREFORMAT_MESSAGE_MAX 256
@@ -1598,7 +1597,7 @@ extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, 
 /* TABULAR                                                                      */
 /* ---------------------------------------------------------------------------- */
 
-#define NEXUS_TABULAR_DEFAULT_LABEL_WIDTH 22
+#define NEXUS_TABULAR_DEFAULT_LABEL_WIDTH   22
 #define NEXUS_TABULAR_DEFAULT_BANNER_WIDTH  97
 #define NEXUS_TABULAR_MAX_COLUMNS           32
 #define NEXUS_TABULAR_BUFFERED_ROWS_INITIAL 16
@@ -1606,7 +1605,7 @@ extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, 
 #define NEXUS_TABULAR_MAX_CELL_LENGTH       128
 
 typedef enum NexusTabularAlign {
-  NEXUS_TABULAR_ALIGN_LEFT = 0,
+  NEXUS_TABULAR_ALIGN_LEFT  = 0,
   NEXUS_TABULAR_ALIGN_RIGHT = 1
 } NexusTabularAlign;
 
@@ -1633,9 +1632,9 @@ typedef struct NexusTabularColumn {
 } NexusTabularColumn;
 
 typedef struct NexusTabularBufferedRow {
-  char  row_label[NEXUS_TABULAR_MAX_LABEL_LENGTH];
-  char  cell_values[NEXUS_TABULAR_MAX_COLUMNS][NEXUS_TABULAR_MAX_CELL_LENGTH];
-  char *cell_pointers[NEXUS_TABULAR_MAX_COLUMNS];
+  char   row_label[NEXUS_TABULAR_MAX_LABEL_LENGTH];
+  char   cell_values[NEXUS_TABULAR_MAX_COLUMNS][NEXUS_TABULAR_MAX_CELL_LENGTH];
+  char  *cell_pointers[NEXUS_TABULAR_MAX_COLUMNS];
   uint32 cell_count;
 } NexusTabularBufferedRow;
 
@@ -1663,24 +1662,24 @@ typedef struct NexusTabularTable {
   uint32                   session_tag;
 } NexusTabularTable;
 
-extern void nexus_tabular_report_begin(NexusTabularReport *report, char *buffer, uint_large max_len, boolean sizing_pass);
-extern void nexus_tabular_report_section(NexusTabularReport *report, const char *title, uint32 banner_width);
-extern void nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...);
-extern void nexus_tabular_report_vline(NexusTabularReport *report, const char *format, va_list args);
-extern void nexus_tabular_report_blank_line(NexusTabularReport *report);
+extern void       nexus_tabular_report_begin(NexusTabularReport *report, char *buffer, uint_large max_len, boolean sizing_pass);
+extern void       nexus_tabular_report_section(NexusTabularReport *report, const char *title, uint32 banner_width);
+extern void       nexus_tabular_report_line(NexusTabularReport *report, const char *format, ...);
+extern void       nexus_tabular_report_vline(NexusTabularReport *report, const char *format, va_list args);
+extern void       nexus_tabular_report_blank_line(NexusTabularReport *report);
 extern uint_large nexus_tabular_report_offset_get(const NexusTabularReport *report);
-extern uint64 nexus_tabular_report_required_size_get(const NexusTabularReport *report);
+extern uint64     nexus_tabular_report_required_size_get(const NexusTabularReport *report);
 
-extern void     nexus_tabular_table_begin(NexusTabularTable *table, NexusTabularReport *report, uint32 label_width);
-extern uint32   nexus_tabular_table_column_add(NexusTabularTable *table, const char *title, uint32 width, NexusTabularAlign align);
-extern void     nexus_tabular_table_column_fit(NexusTabularTable *table, uint32 column_index, const char *value);
-extern void     nexus_tabular_table_label_fit(NexusTabularTable *table, const char *value);
-extern void     nexus_tabular_table_header_defer(NexusTabularTable *table, const char *label_title);
-extern void     nexus_tabular_table_row_stage(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
-extern void     nexus_tabular_table_emit(NexusTabularTable *table);
-extern void     nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title);
-extern void     nexus_tabular_table_row_write(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
-extern void     nexus_tabular_table_end(NexusTabularTable *table);
+extern void   nexus_tabular_table_begin(NexusTabularTable *table, NexusTabularReport *report, uint32 label_width);
+extern uint32 nexus_tabular_table_column_add(NexusTabularTable *table, const char *title, uint32 width, NexusTabularAlign align);
+extern void   nexus_tabular_table_column_fit(NexusTabularTable *table, uint32 column_index, const char *value);
+extern void   nexus_tabular_table_label_fit(NexusTabularTable *table, const char *value);
+extern void   nexus_tabular_table_header_defer(NexusTabularTable *table, const char *label_title);
+extern void   nexus_tabular_table_row_stage(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
+extern void   nexus_tabular_table_emit(NexusTabularTable *table);
+extern void   nexus_tabular_table_header_write(NexusTabularTable *table, const char *label_title);
+extern void   nexus_tabular_table_row_write(NexusTabularTable *table, const char *row_label, const char *const *cell_values, uint32 cell_count);
+extern void   nexus_tabular_table_end(NexusTabularTable *table);
 
 /* ---------------------------------------------------------------------------- */
 /* LOCALE                                                                       */
@@ -2259,8 +2258,7 @@ nexus_filesystem_file_read_line reads one line from an opened text file into buf
 The line terminator is not copied. A short read at EOF returns the bytes read with NEXUS_ERROR_NONE.
 Returns NEXUS_ERROR_INVALID_ARGUMENT when buffer_max_length is zero.
 */
-extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length,
-                                              uint_large *out_bytes_read);
+extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length, uint_large *out_bytes_read);
 
 /* ---------------------------------------------------------------------------- */
 /* ASSERTIONS                                                                   */
@@ -2332,24 +2330,23 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
   assertion call-site line range so debuggers stop on the NEXUS_ASSERT* invocation, not the next statement.
 */
 #    if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-        __asm__ __volatile__("brk #0\n\tnop");                                                                                                          \
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("brk #0\n\tnop");                                                                                                       \
         abort();
 #    elif defined(__arm__) || defined(__ARM_ARCH) || defined(_M_ARM)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-        __asm__ __volatile__("bkpt #0\n\tnop");                                                                                                        \
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("bkpt #0\n\tnop");                                                                                                      \
         abort();
 #    elif defined(__riscv) || defined(__riscv__)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-        __asm__ __volatile__("ebreak\n\tnop");                                                                                                         \
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("ebreak\n\tnop");                                                                                                       \
         abort();
 #    elif defined(__i386__) || defined(__x86_64__) || defined(__amd64__)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-        __asm__ __volatile__("int3\n\tnop");                                                                                                           \
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("int3\n\tnop");                                                                                                         \
         abort();
 #    else
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-        __builtin_trap();
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP() __builtin_trap();
 #    endif
 #  else /* Generic fallback */
 #    include <signal.h>
@@ -2358,21 +2355,21 @@ extern void nexus_assertions_failure_report(const char *expression, const char *
       abort();
 #  endif /* NEXUS_ASSERTIONS_DEBUG_TRAP implementation selection */
 
-#if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
+#  if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
 /*
 Expose runtime assertion state for inline macro evaluation in hot paths.
 */
 extern boolean n_runtime_assertions_active;
-#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (n_runtime_assertions_active)
-#else
-#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
-#endif
+#    define NEXUS_INTERNAL_ASSERT_ACTIVE() (n_runtime_assertions_active)
+#  else
+#    define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
+#  endif
 
 #  if NEXUS_ASSERTIONS_RUNTIME_ENABLED
 
 #    define NEXUS_ASSERT(expr)                                                                                                                       \
       do {                                                                                                                                           \
-        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                  \
+        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                        \
           if (!(expr)) {                                                                                                                             \
             nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                          \
           }                                                                                                                                          \
@@ -2381,7 +2378,7 @@ extern boolean n_runtime_assertions_active;
 
 #    define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                      \
       do {                                                                                                                                           \
-        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                  \
+        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                        \
           if (!(expr)) {                                                                                                                             \
             nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                     \
           }                                                                                                                                          \
@@ -2390,18 +2387,18 @@ extern boolean n_runtime_assertions_active;
 
 #    if NEXUS_DEBUG_ENABLED
 
-#      define NEXUS_ASSERT_DEBUG(expr)                                                                                                              \
+#      define NEXUS_ASSERT_DEBUG(expr)                                                                                                               \
         do {                                                                                                                                         \
-          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                \
+          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                      \
             if (!(expr)) {                                                                                                                           \
               nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                        \
             }                                                                                                                                        \
           }                                                                                                                                          \
         } while (0)
 
-#      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                            \
+#      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                              \
         do {                                                                                                                                         \
-          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                \
+          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                      \
             if (!(expr)) {                                                                                                                           \
               nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                   \
             }                                                                                                                                        \
@@ -2444,9 +2441,9 @@ NEXUS_MEMORY_PREFETCH_LOCALITY_* map to temporal-locality hints for nexus_memory
 Higher locality keeps the line closer to the core; lower locality minimizes cache pollution.
 */
 #define NEXUS_MEMORY_PREFETCH_LOCALITY_NONE   0
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW     1
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM  2
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH    3
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW    1
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM 2
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH   3
 
 /*
 NEXUS_MEMORY_PREFETCH hints the CPU to load the cache line containing address before it is accessed.
@@ -2456,21 +2453,20 @@ locality: one of NEXUS_MEMORY_PREFETCH_LOCALITY_*.
 No-op when the platform has no prefetch intrinsic.
 */
 #if defined(__GNUC__) || defined(__clang__)
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) \
-    __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
 #elif defined(_MSC_VER)
 #  include <intrin.h>
 #  include <xmmintrin.h>
 #  define NEXUS_MEMORY_PREFETCH(address, read_write, locality)                                                                                       \
     do {                                                                                                                                             \
       if ((read_write) != FALSE) {                                                                                                                   \
-        _m_prefetchw((void *)(address));                                                                                                              \
+        _m_prefetchw((void *)(address));                                                                                                             \
       } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM) {                                                                              \
-        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                            \
-      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                  \
-        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                           \
+        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                          \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                 \
+        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                          \
       } else {                                                                                                                                       \
-        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                           \
+        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                          \
       }                                                                                                                                              \
     } while (0)
 #else
@@ -2488,8 +2484,7 @@ src are checked against tracked heap allocations and a memory-debugger log event
 log callback is installed.
 */
 #if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_copy(dest, src, byte_count) \
-    nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
+#  define nexus_memory_bytes_copy(dest, src, byte_count) nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
 #else
 static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
   if (byte_count == 0) {
@@ -2513,8 +2508,7 @@ checked against tracked heap allocations and a memory-debugger log event is emit
 callback is installed.
 */
 #if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_set(dest, byte, byte_count) \
-    nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
+#  define nexus_memory_bytes_set(dest, byte, byte_count) nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
 #else
 static void nexus_memory_bytes_set(void *dest, uint8 byte, uint_large byte_count) /* NOLINT */ {
   if (byte_count == 0) {
@@ -2537,8 +2531,7 @@ checked against tracked heap allocations and a memory-debugger log event is emit
 callback is installed.
 */
 #if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_clear(dest, byte_count) \
-    nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
+#  define nexus_memory_bytes_clear(dest, byte_count) nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
 #else
 static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLINT */ {
   nexus_memory_bytes_set(dest, 0, byte_count);
@@ -3302,3 +3295,143 @@ nexus_hardware_floating_point_denormal_flush_pop restores the floating-point
 control word previously returned by nexus_hardware_floating_point_denormal_flush_push.
 */
 extern void nexus_hardware_floating_point_denormal_flush_pop(uint32 previous_control);
+
+/* ---------------------------------------------------------------------------- */
+/* ALGORITHMS & DATA STRUCTURES                                                 */
+/* ---------------------------------------------------------------------------- */
+
+#define NEXUS_CONCAT_IMPL(a, b) a##_##b
+#define NEXUS_CONCAT(a, b)      NEXUS_CONCAT_IMPL(a, b)
+
+#define NEXUS_KEY_VALUE_PAIR_DECLARE(key_type, val_type, suffix)                                                                                     \
+  typedef struct NEXUS_CONCAT(NexusKeyValuePair, suffix) {                                                                                           \
+    key_type key;                                                                                                                                    \
+    val_type value;                                                                                                                                  \
+  } NEXUS_CONCAT(NexusKeyValuePair, suffix);                                                                                                         \
+                                                                                                                                                     \
+  extern uint32 NEXUS_CONCAT(nexus_search_binary_kv, suffix)(const NEXUS_CONCAT(NexusKeyValuePair, suffix) * items, uint32 count, key_type target_key)
+
+/* Source Definition Template */
+#define NEXUS_KEY_VALUE_PAIR_DEFINE(key_type, val_type, suffix)                                                                                      \
+  uint32 NEXUS_CONCAT(nexus_search_binary_kv, suffix)(const NEXUS_CONCAT(NexusKeyValuePair, suffix) * items, uint32 count, key_type target_key) {    \
+    uint32 low;                                                                                                                                      \
+    uint32 high;                                                                                                                                     \
+    uint32 mid;                                                                                                                                      \
+                                                                                                                                                     \
+    if (count == 0) {                                                                                                                                \
+      return 0;                                                                                                                                      \
+    }                                                                                                                                                \
+                                                                                                                                                     \
+    low  = 0;                                                                                                                                        \
+    high = count - 1;                                                                                                                                \
+                                                                                                                                                     \
+    while (low <= high) {                                                                                                                            \
+      mid = low + ((high - low) / 2);                                                                                                                \
+      if (items[mid].key == target_key) {                                                                                                            \
+        return items[mid].value;                                                                                                                     \
+      }                                                                                                                                              \
+      if (items[mid].key < target_key) {                                                                                                             \
+        low = mid + 1;                                                                                                                               \
+      } else {                                                                                                                                       \
+        if (mid == 0)                                                                                                                                \
+          break;                                                                                                                                     \
+        high = mid - 1;                                                                                                                              \
+      }                                                                                                                                              \
+    }                                                                                                                                                \
+    return count;                                                                                                                                    \
+  }
+
+#define NEXUS_DATA_HEAP_MIN_INDEX_DECLARE(key_type, suffix)                                                                                          \
+  extern void   NEXUS_CONCAT(nexus_data_heap_min_index_push, suffix)(uint32 * priority_queue, uint32 * priority_queue_count, uint32 index,           \
+                                                                   const key_type *keys);                                                          \
+  extern uint32 NEXUS_CONCAT(nexus_data_heap_min_index_pop, suffix)(uint32 * priority_queue, uint32 * priority_queue_count, const key_type *keys)
+
+#define NEXUS_DATA_HEAP_MIN_INDEX_DEFINE(key_type, suffix)                                                                                           \
+  void NEXUS_CONCAT(nexus_data_heap_min_index_push, suffix)(uint32 * priority_queue, uint32 * priority_queue_count, uint32 index,                    \
+                                                            const key_type *keys) {                                                                  \
+    uint32 current;                                                                                                                                  \
+    uint32 parent;                                                                                                                                   \
+    uint32 swap_tmp;                                                                                                                                 \
+                                                                                                                                                     \
+    current                 = *priority_queue_count;                                                                                                 \
+    priority_queue[current] = index;                                                                                                                 \
+    (*priority_queue_count)++;                                                                                                                       \
+                                                                                                                                                     \
+    while (current > 0) {                                                                                                                            \
+      parent = (current - 1) / 2;                                                                                                                    \
+      if (keys[priority_queue[current]] < keys[priority_queue[parent]]) {                                                                            \
+        swap_tmp                = priority_queue[current];                                                                                           \
+        priority_queue[current] = priority_queue[parent];                                                                                            \
+        priority_queue[parent]  = swap_tmp;                                                                                                          \
+        current                 = parent;                                                                                                            \
+      } else {                                                                                                                                       \
+        break;                                                                                                                                       \
+      }                                                                                                                                              \
+    }                                                                                                                                                \
+  }                                                                                                                                                  \
+                                                                                                                                                     \
+  uint32 NEXUS_CONCAT(nexus_data_heap_min_index_pop, suffix)(uint32 * priority_queue, uint32 * priority_queue_count, const key_type *keys) {         \
+    uint32 root;                                                                                                                                     \
+    uint32 current;                                                                                                                                  \
+    uint32 left;                                                                                                                                     \
+    uint32 right;                                                                                                                                    \
+    uint32 smallest;                                                                                                                                 \
+    uint32 swap_tmp;                                                                                                                                 \
+                                                                                                                                                     \
+    root    = priority_queue[0];                                                                                                                     \
+    current = 0;                                                                                                                                     \
+    (*priority_queue_count)--;                                                                                                                       \
+    priority_queue[0] = priority_queue[*priority_queue_count];                                                                                       \
+                                                                                                                                                     \
+    while (1) {                                                                                                                                      \
+      left     = (2 * current) + 1;                                                                                                                  \
+      right    = (2 * current) + 2;                                                                                                                  \
+      smallest = current;                                                                                                                            \
+                                                                                                                                                     \
+      if (left < *priority_queue_count && keys[priority_queue[left]] < keys[priority_queue[smallest]]) {                                             \
+        smallest = left;                                                                                                                             \
+      }                                                                                                                                              \
+      if (right < *priority_queue_count && keys[priority_queue[right]] < keys[priority_queue[smallest]]) {                                           \
+        smallest = right;                                                                                                                            \
+      }                                                                                                                                              \
+                                                                                                                                                     \
+      if (smallest != current) {                                                                                                                     \
+        swap_tmp                 = priority_queue[current];                                                                                          \
+        priority_queue[current]  = priority_queue[smallest];                                                                                         \
+        priority_queue[smallest] = swap_tmp;                                                                                                         \
+        current                  = smallest;                                                                                                         \
+      } else {                                                                                                                                       \
+        break;                                                                                                                                       \
+      }                                                                                                                                              \
+    }                                                                                                                                                \
+    return root;                                                                                                                                     \
+  }
+
+/* Table for Key-Value Pairs: ENTRY(key_type, value_type, suffix_name) */
+#define NEXUS_KV_TYPE_TABLE(ENTRY)                                                                                                                   \
+  ENTRY(uint32, uint32, uint32)                                                                                                                      \
+  ENTRY(uint64, uint32, uint64_uint32)                                                                                                               \
+  ENTRY(uint64, uint64, uint64)                                                                                                                      \
+  ENTRY(int32, uint32, int32_uint32)                                                                                                                 \
+  ENTRY(int64, uint32, int64_uint32)                                                                                                                 \
+  ENTRY(uint_large, uint32, uint_large)                                                                                                              \
+  ENTRY(f_real, uint32, f_real_uint32)
+
+/* Table for Key-Only Heaps: ENTRY(key_type, suffix_name) */
+#define NEXUS_HEAP_TYPE_TABLE(ENTRY)                                                                                                                 \
+  ENTRY(uint32, uint32)                                                                                                                              \
+  ENTRY(uint64, uint64)                                                                                                                              \
+  ENTRY(int32, int32)                                                                                                                                \
+  ENTRY(int64, int64)                                                                                                                                \
+  ENTRY(uint_large, uint_large)                                                                                                                      \
+  ENTRY(f_real, f_real)
+
+/* Instantiate all Key-Value struct definitions and function declarations */
+#define X_KV_DECL(key_type, val_type, suffix) NEXUS_KEY_VALUE_PAIR_DECLARE(key_type, val_type, suffix);
+NEXUS_KV_TYPE_TABLE(X_KV_DECL)
+#undef X_KV_DECL
+
+/* Instantiate all Heap function declarations */
+#define X_HEAP_DECL(key_type, suffix) NEXUS_DATA_HEAP_MIN_INDEX_DECLARE(key_type, suffix);
+NEXUS_HEAP_TYPE_TABLE(X_HEAP_DECL)
+#undef X_HEAP_DECL
