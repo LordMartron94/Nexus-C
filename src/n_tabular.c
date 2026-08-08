@@ -50,7 +50,12 @@ static void n_tabular_table_buffered_rows_ensure(NexusTabularTable *table, uint3
     new_capacity = doubled;
   }
 
-  grown = (NexusTabularBufferedRow *)realloc(table->buffered_rows, (size_t)new_capacity * NEXUS_SIZEOF(NexusTabularBufferedRow));
+  if (table->buffered_rows == NULL) {
+    grown = (NexusTabularBufferedRow *)malloc((size_t)new_capacity * NEXUS_SIZEOF(NexusTabularBufferedRow));
+  } else {
+    grown = (NexusTabularBufferedRow *)realloc(table->buffered_rows, (size_t)new_capacity * NEXUS_SIZEOF(NexusTabularBufferedRow));
+  }
+
   NEXUS_ASSERT_MESSAGE_DEBUG(grown != NULL, "Tabular row buffer allocation failed.");
 
   table->buffered_rows         = grown;
