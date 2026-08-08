@@ -2669,73 +2669,24 @@ static boolean nexus_strings_string_equals_mixed_alt(const char *str1, const uns
 }
 
 /* ---------------------------------------------------------------------------- */
-/* BITS                                                                         */
+/* BITS                                                                        */
 /* ---------------------------------------------------------------------------- */
 
 /*
-Endian-safe decoders for packed binary data.
+Endian-safe encoders and decoders for packed binary data.
 
 LSB functions treat bytes[0] as the least significant byte (little-endian wire order).
 MSB functions treat bytes[0] as the most significant byte (big-endian wire order).
 
-Integer signed variants reinterpret the assembled bit pattern as two's complement.
-Floating-point variants assemble an IEEE-754 bit pattern, then reinterpret it.
+Integer signed variants cast two's complement bit patterns directly.
+Floating-point variants reinterpret IEEE-754 bit patterns via union conversion.
 
-bytes must not be NULL. Each function reads exactly sizeof(return type) bytes.
+out and bytes buffers must not be NULL. Each function writes or reads exactly
+sizeof(type) bytes.
 */
 
-/*
-nexus_bits_uint16_from_bytes_lsb decodes a 16-bit unsigned integer from 2 bytes, little-endian.
-*/
-static uint16 nexus_bits_uint16_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (uint16)((uint16)bytes[0] | ((uint16)bytes[1] << 8));
-}
+/* --- Bit Reinterpretation Helpers --- */
 
-/*
-nexus_bits_uint32_from_bytes_lsb decodes a 32-bit unsigned integer from 4 bytes, little-endian.
-*/
-static uint32 nexus_bits_uint32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (uint32)bytes[0] | ((uint32)bytes[1] << 8) | ((uint32)bytes[2] << 16) | ((uint32)bytes[3] << 24);
-}
-
-/*
-nexus_bits_uint64_from_bytes_lsb decodes a 64-bit unsigned integer from 8 bytes, little-endian.
-*/
-static uint64 nexus_bits_uint64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (uint64)bytes[0] | ((uint64)bytes[1] << 8) | ((uint64)bytes[2] << 16) | ((uint64)bytes[3] << 24) | ((uint64)bytes[4] << 32) |
-         ((uint64)bytes[5] << 40) | ((uint64)bytes[6] << 48) | ((uint64)bytes[7] << 56);
-}
-
-/*
-nexus_bits_int16_from_bytes_lsb decodes a 16-bit signed integer from 2 bytes, little-endian.
-*/
-static int16 nexus_bits_int16_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (int16)nexus_bits_uint16_from_bytes_lsb(bytes);
-}
-
-/*
-nexus_bits_int32_from_bytes_lsb decodes a 32-bit signed integer from 4 bytes, little-endian.
-*/
-static int32 nexus_bits_int32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (int32)nexus_bits_uint32_from_bytes_lsb(bytes);
-}
-
-/*
-nexus_bits_int64_from_bytes_lsb decodes a 64-bit signed integer from 8 bytes, little-endian.
-*/
-static int64 nexus_bits_int64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (int64)nexus_bits_uint64_from_bytes_lsb(bytes);
-}
-
-/*
-nexus_bits_uint32_from_real32 reinterprets a 32-bit float as its IEEE-754 bit pattern.
-*/
 static uint32 nexus_bits_uint32_from_real32(real32 value) /* NOLINT */ {
   union {
     real32 value;
@@ -2746,9 +2697,6 @@ static uint32 nexus_bits_uint32_from_real32(real32 value) /* NOLINT */ {
   return converter.bit_pattern;
 }
 
-/*
-nexus_bits_real32_from_uint32 reinterprets a 32-bit bit pattern as IEEE-754 float.
-*/
 static real32 nexus_bits_real32_from_uint32(uint32 bits) /* NOLINT */ {
   union {
     uint32 bit_pattern;
@@ -2759,9 +2707,6 @@ static real32 nexus_bits_real32_from_uint32(uint32 bits) /* NOLINT */ {
   return converter.value;
 }
 
-/*
-nexus_bits_uint64_from_real64 reinterprets a 64-bit float as its IEEE-754 bit pattern.
-*/
 static uint64 nexus_bits_uint64_from_real64(real64 value) /* NOLINT */ {
   union {
     real64 value;
@@ -2772,9 +2717,6 @@ static uint64 nexus_bits_uint64_from_real64(real64 value) /* NOLINT */ {
   return converter.bit_pattern;
 }
 
-/*
-nexus_bits_real64_from_uint64 reinterprets a 64-bit bit pattern as IEEE-754 double.
-*/
 static real64 nexus_bits_real64_from_uint64(uint64 bits) /* NOLINT */ {
   union {
     uint64 bit_pattern;
@@ -2785,90 +2727,6 @@ static real64 nexus_bits_real64_from_uint64(uint64 bits) /* NOLINT */ {
   return converter.value;
 }
 
-/*
-nexus_bits_real32_from_bytes_lsb decodes a 32-bit IEEE-754 float from 4 bytes, little-endian.
-*/
-static real32 nexus_bits_real32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return nexus_bits_real32_from_uint32(nexus_bits_uint32_from_bytes_lsb(bytes));
-}
-
-/*
-nexus_bits_real64_from_bytes_lsb decodes a 64-bit IEEE-754 double from 8 bytes, little-endian.
-*/
-static real64 nexus_bits_real64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return nexus_bits_real64_from_uint64(nexus_bits_uint64_from_bytes_lsb(bytes));
-}
-
-/*
-nexus_bits_uint16_from_bytes_msb decodes a 16-bit unsigned integer from 2 bytes, big-endian.
-*/
-static uint16 nexus_bits_uint16_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (uint16)(((uint16)bytes[0] << 8) | (uint16)bytes[1]);
-}
-
-/*
-nexus_bits_uint32_from_bytes_msb decodes a 32-bit unsigned integer from 4 bytes, big-endian.
-*/
-static uint32 nexus_bits_uint32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return ((uint32)bytes[0] << 24) | ((uint32)bytes[1] << 16) | ((uint32)bytes[2] << 8) | (uint32)bytes[3];
-}
-
-/*
-nexus_bits_uint64_from_bytes_msb decodes a 64-bit unsigned integer from 8 bytes, big-endian.
-*/
-static uint64 nexus_bits_uint64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return ((uint64)bytes[0] << 56) | ((uint64)bytes[1] << 48) | ((uint64)bytes[2] << 40) | ((uint64)bytes[3] << 32) | ((uint64)bytes[4] << 24) |
-         ((uint64)bytes[5] << 16) | ((uint64)bytes[6] << 8) | (uint64)bytes[7];
-}
-
-/*
-nexus_bits_int16_from_bytes_msb decodes a 16-bit signed integer from 2 bytes, big-endian.
-*/
-static int16 nexus_bits_int16_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (int16)nexus_bits_uint16_from_bytes_msb(bytes);
-}
-
-/*
-nexus_bits_int32_from_bytes_msb decodes a 32-bit signed integer from 4 bytes, big-endian.
-*/
-static int32 nexus_bits_int32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (int32)nexus_bits_uint32_from_bytes_msb(bytes);
-}
-
-/*
-nexus_bits_int64_from_bytes_msb decodes a 64-bit signed integer from 8 bytes, big-endian.
-*/
-static int64 nexus_bits_int64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return (int64)nexus_bits_uint64_from_bytes_msb(bytes);
-}
-
-/*
-nexus_bits_real32_from_bytes_msb decodes a 32-bit IEEE-754 float from 4 bytes, big-endian.
-*/
-static real32 nexus_bits_real32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return nexus_bits_real32_from_uint32(nexus_bits_uint32_from_bytes_msb(bytes));
-}
-
-/*
-nexus_bits_real64_from_bytes_msb decodes a 64-bit IEEE-754 double from 8 bytes, big-endian.
-*/
-static real64 nexus_bits_real64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(bytes != NULL);
-  return nexus_bits_real64_from_uint64(nexus_bits_uint64_from_bytes_msb(bytes));
-}
-
-/*
-nexus_bits_uint32_from_f_real reinterprets f_real as its IEEE-754 bit pattern.
-*/
 static uint32 nexus_bits_uint32_from_f_real(f_real value) /* NOLINT */ {
 #if NEXUS_FLOAT_DOUBLE_PRECISION
   return (uint32)nexus_bits_uint64_from_real64((real64)value);
@@ -2877,9 +2735,6 @@ static uint32 nexus_bits_uint32_from_f_real(f_real value) /* NOLINT */ {
 #endif
 }
 
-/*
-nexus_bits_uint64_from_f_real reinterprets f_real as its IEEE-754 bit pattern.
-*/
 static uint64 nexus_bits_uint64_from_f_real(f_real value) /* NOLINT */ {
 #if NEXUS_FLOAT_DOUBLE_PRECISION
   return nexus_bits_uint64_from_real64((real64)value);
@@ -2888,9 +2743,6 @@ static uint64 nexus_bits_uint64_from_f_real(f_real value) /* NOLINT */ {
 #endif
 }
 
-/*
-nexus_bits_f_real_from_uint32 reinterprets a 32-bit bit pattern as f_real.
-*/
 static f_real nexus_bits_f_real_from_uint32(uint32 bits) /* NOLINT */ {
 #if NEXUS_FLOAT_DOUBLE_PRECISION
   return (f_real)nexus_bits_real64_from_uint64((uint64)bits);
@@ -2899,9 +2751,6 @@ static f_real nexus_bits_f_real_from_uint32(uint32 bits) /* NOLINT */ {
 #endif
 }
 
-/*
-nexus_bits_f_real_from_uint64 reinterprets a 64-bit bit pattern as f_real.
-*/
 static f_real nexus_bits_f_real_from_uint64(uint64 bits) /* NOLINT */ {
 #if NEXUS_FLOAT_DOUBLE_PRECISION
   return (f_real)nexus_bits_real64_from_uint64(bits);
@@ -2910,10 +2759,179 @@ static f_real nexus_bits_f_real_from_uint64(uint64 bits) /* NOLINT */ {
 #endif
 }
 
-/*
-Bit-field helpers for fixed-width unsigned integers. bit_index 0 is the least significant bit.
-Get returns whether the bit is set. Set returns value with the bit cleared or set.
-*/
+/* --- Little-Endian (LSB) Encoders (Packing) --- */
+
+static void nexus_bits_uint16_to_bytes_lsb(byte *out, uint16 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out != NULL);
+  out[0] = (byte)(value & 0xFFu);
+  out[1] = (byte)((value >> 8) & 0xFFu);
+}
+
+static void nexus_bits_uint32_to_bytes_lsb(byte *out, uint32 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out != NULL);
+  out[0] = (byte)(value & 0xFFu);
+  out[1] = (byte)((value >> 8) & 0xFFu);
+  out[2] = (byte)((value >> 16) & 0xFFu);
+  out[3] = (byte)((value >> 24) & 0xFFu);
+}
+
+static void nexus_bits_uint64_to_bytes_lsb(byte *out, uint64 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out != NULL);
+  out[0] = (byte)(value & 0xFFu);
+  out[1] = (byte)((value >> 8) & 0xFFu);
+  out[2] = (byte)((value >> 16) & 0xFFu);
+  out[3] = (byte)((value >> 24) & 0xFFu);
+  out[4] = (byte)((value >> 32) & 0xFFu);
+  out[5] = (byte)((value >> 40) & 0xFFu);
+  out[6] = (byte)((value >> 48) & 0xFFu);
+  out[7] = (byte)((value >> 56) & 0xFFu);
+}
+
+static void nexus_bits_int16_to_bytes_lsb(byte *out, int16 value) /* NOLINT */ {
+  nexus_bits_uint16_to_bytes_lsb(out, (uint16)value);
+}
+
+static void nexus_bits_int32_to_bytes_lsb(byte *out, int32 value) /* NOLINT */ {
+  nexus_bits_uint32_to_bytes_lsb(out, (uint32)value);
+}
+
+static void nexus_bits_int64_to_bytes_lsb(byte *out, int64 value) /* NOLINT */ {
+  nexus_bits_uint64_to_bytes_lsb(out, (uint64)value);
+}
+
+static void nexus_bits_real32_to_bytes_lsb(byte *out, real32 value) /* NOLINT */ {
+  nexus_bits_uint32_to_bytes_lsb(out, nexus_bits_uint32_from_real32(value));
+}
+
+static void nexus_bits_real64_to_bytes_lsb(byte *out, real64 value) /* NOLINT */ {
+  nexus_bits_uint64_to_bytes_lsb(out, nexus_bits_uint64_from_real64(value));
+}
+
+/* --- Little-Endian (LSB) Decoders (Unpacking) --- */
+
+static uint16 nexus_bits_uint16_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint16)((uint16)bytes[0] | ((uint16)bytes[1] << 8));
+}
+
+static uint32 nexus_bits_uint32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint32)bytes[0] | ((uint32)bytes[1] << 8) | ((uint32)bytes[2] << 16) | ((uint32)bytes[3] << 24);
+}
+
+static uint64 nexus_bits_uint64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint64)bytes[0] | ((uint64)bytes[1] << 8) | ((uint64)bytes[2] << 16) | ((uint64)bytes[3] << 24) | ((uint64)bytes[4] << 32) |
+         ((uint64)bytes[5] << 40) | ((uint64)bytes[6] << 48) | ((uint64)bytes[7] << 56);
+}
+
+static int16 nexus_bits_int16_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  return (int16)nexus_bits_uint16_from_bytes_lsb(bytes);
+}
+
+static int32 nexus_bits_int32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  return (int32)nexus_bits_uint32_from_bytes_lsb(bytes);
+}
+
+static int64 nexus_bits_int64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  return (int64)nexus_bits_uint64_from_bytes_lsb(bytes);
+}
+
+static real32 nexus_bits_real32_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  return nexus_bits_real32_from_uint32(nexus_bits_uint32_from_bytes_lsb(bytes));
+}
+
+static real64 nexus_bits_real64_from_bytes_lsb(const byte *bytes) /* NOLINT */ {
+  return nexus_bits_real64_from_uint64(nexus_bits_uint64_from_bytes_lsb(bytes));
+}
+
+/* --- Big-Endian (MSB) Encoders (Packing) --- */
+
+static void nexus_bits_uint16_to_bytes_msb(byte *out, uint16 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out != NULL);
+  out[0] = (byte)((value >> 8) & 0xFFu);
+  out[1] = (byte)(value & 0xFFu);
+}
+
+static void nexus_bits_uint32_to_bytes_msb(byte *out, uint32 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out != NULL);
+  out[0] = (byte)((value >> 24) & 0xFFu);
+  out[1] = (byte)((value >> 16) & 0xFFu);
+  out[2] = (byte)((value >> 8) & 0xFFu);
+  out[3] = (byte)(value & 0xFFu);
+}
+
+static void nexus_bits_uint64_to_bytes_msb(byte *out, uint64 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out != NULL);
+  out[0] = (byte)((value >> 56) & 0xFFu);
+  out[1] = (byte)((value >> 48) & 0xFFu);
+  out[2] = (byte)((value >> 40) & 0xFFu);
+  out[3] = (byte)((value >> 32) & 0xFFu);
+  out[4] = (byte)((value >> 24) & 0xFFu);
+  out[5] = (byte)((value >> 16) & 0xFFu);
+  out[6] = (byte)((value >> 8) & 0xFFu);
+  out[7] = (byte)(value & 0xFFu);
+}
+
+static void nexus_bits_int16_to_bytes_msb(byte *out, int16 value) /* NOLINT */ {
+  nexus_bits_uint16_to_bytes_msb(out, (uint16)value);
+}
+
+static void nexus_bits_int32_to_bytes_msb(byte *out, int32 value) /* NOLINT */ {
+  nexus_bits_uint32_to_bytes_msb(out, (uint32)value);
+}
+
+static void nexus_bits_int64_to_bytes_msb(byte *out, int64 value) /* NOLINT */ {
+  nexus_bits_uint64_to_bytes_msb(out, (uint64)value);
+}
+
+static void nexus_bits_real32_to_bytes_msb(byte *out, real32 value) /* NOLINT */ {
+  nexus_bits_uint32_to_bytes_msb(out, nexus_bits_uint32_from_real32(value));
+}
+
+static void nexus_bits_real64_to_bytes_msb(byte *out, real64 value) /* NOLINT */ {
+  nexus_bits_uint64_to_bytes_msb(out, nexus_bits_uint64_from_real64(value));
+}
+
+/* --- Big-Endian (MSB) Decoders (Unpacking) --- */
+
+static uint16 nexus_bits_uint16_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return (uint16)(((uint16)bytes[0] << 8) | (uint16)bytes[1]);
+}
+
+static uint32 nexus_bits_uint32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return ((uint32)bytes[0] << 24) | ((uint32)bytes[1] << 16) | ((uint32)bytes[2] << 8) | (uint32)bytes[3];
+}
+
+static uint64 nexus_bits_uint64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(bytes != NULL);
+  return ((uint64)bytes[0] << 56) | ((uint64)bytes[1] << 48) | ((uint64)bytes[2] << 40) | ((uint64)bytes[3] << 32) | ((uint64)bytes[4] << 24) |
+         ((uint64)bytes[5] << 16) | ((uint64)bytes[6] << 8) | (uint64)bytes[7];
+}
+
+static int16 nexus_bits_int16_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  return (int16)nexus_bits_uint16_from_bytes_msb(bytes);
+}
+
+static int32 nexus_bits_int32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  return (int32)nexus_bits_uint32_from_bytes_msb(bytes);
+}
+
+static int64 nexus_bits_int64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  return (int64)nexus_bits_uint64_from_bytes_msb(bytes);
+}
+
+static real32 nexus_bits_real32_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  return nexus_bits_real32_from_uint32(nexus_bits_uint32_from_bytes_msb(bytes));
+}
+
+static real64 nexus_bits_real64_from_bytes_msb(const byte *bytes) /* NOLINT */ {
+  return nexus_bits_real64_from_uint64(nexus_bits_uint64_from_bytes_msb(bytes));
+}
+
+/* --- Bitfield Manipulation Operations --- */
 
 static boolean nexus_bits_uint8_get(uint8 value, uint32 bit_index) /* NOLINT */ {
   NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 8u, "bit_index out of range for uint8.");
@@ -2971,74 +2989,16 @@ static boolean nexus_bits_uint64_get(uint64 value, uint32 bit_index) /* NOLINT *
   return (boolean)((value >> bit_index) & 1u);
 }
 
-static void nexus_bits_uint64_set(uint64 *value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
+static uint64 nexus_bits_uint64_set(uint64 value, uint32 bit_index, boolean bit_value) /* NOLINT */ {
   const uint64 mask = ((uint64)1) << bit_index;
 
   NEXUS_ASSERT_MESSAGE_DEBUG(bit_index < 64u, "bit_index out of range for uint64.");
 
   if (bit_value) {
-    *value = *value | mask;
-    return;
+    return value | mask;
   }
 
-  *value = *value & ~mask;
-}
-
-/*
-nexus_bits_uint64_clear_lowest_set clears the least-significant set bit of value (Kernighan).
-*/
-static uint64 nexus_bits_uint64_clear_lowest_set(uint64 value) /* NOLINT */ {
-  return value & (value - 1ULL);
-}
-
-/*
-nexus_bits_uint64_trailing_zeros returns the 0-based index of the least-significant set bit
-in value (0..63). value must be non-zero. Prefer this for bitboard piece iteration instead of
-scanning empty squares.
-*/
-static uint32 nexus_bits_uint64_trailing_zeros(uint64 value) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(value != 0ULL);
-
-#if defined(__GNUC__) || defined(__clang__)
-  return (uint32)__builtin_ctzll(value);
-#else
-  {
-    static const uint8 index64[64] = {0,  47, 1,  56, 48, 27, 2,  60, 57, 49, 41, 37, 28, 16, 3,  61, 54, 58, 35, 52, 50, 42,
-                                      21, 44, 38, 32, 29, 23, 17, 11, 4,  62, 46, 55, 26, 59, 40, 36, 15, 53, 34, 51, 20, 43,
-                                      31, 22, 10, 45, 25, 39, 14, 33, 19, 30, 9,  24, 13, 18, 8,  12, 7,  6,  5,  63};
-
-    return (uint32)index64[(uint32)(((value ^ (value - 1ULL)) * 0x03f79d71b4cb0a89ULL) >> 58)];
-  }
-#endif
-}
-
-/*
-nexus_bits_uint64_popcount returns the number of set bits in value.
-*/
-static uint32 nexus_bits_uint64_popcount(uint64 value) /* NOLINT */ {
-#if defined(__GNUC__) || defined(__clang__)
-  return (uint32)__builtin_popcountll(value);
-#else
-  {
-    uint32 count;
-
-    count = 0;
-    while (value != 0ULL) {
-      value = nexus_bits_uint64_clear_lowest_set(value);
-      count++;
-    }
-    return count;
-  }
-#endif
-}
-
-/*
-nexus_bits_hash_mix_u64 mixes value into hash using a golden-ratio multiplier.
-*/
-static uint64 nexus_bits_hash_mix_u64(uint64 hash, uint64 value) /* NOLINT */ {
-  hash ^= value;
-  hash *= 0x9E3779B97F4A7C15ULL;
-  return hash;
+  return value & ~mask;
 }
 
 static boolean nexus_bits_uint_large_get(uint_large value, uint32 bit_index) /* NOLINT */ {
@@ -3056,6 +3016,277 @@ static uint_large nexus_bits_uint_large_set(uint_large value, uint32 bit_index, 
   }
 
   return value & ~mask;
+}
+
+/* ---------------------------------------------------------------------------- */
+/* SUB-WORD PACKING & UNPACKING                                                 */
+/* ---------------------------------------------------------------------------- */
+
+/* --- Half Extraction Helpers (Architecture-Agnostic) --- */
+
+static uint8 nexus_bits_uint16_lo_u8(uint16 value) /* NOLINT */ {
+  return (uint8)(value & 0xFFu);
+}
+
+static uint8 nexus_bits_uint16_hi_u8(uint16 value) /* NOLINT */ {
+  return (uint8)((value >> 8) & 0xFFu);
+}
+
+static uint16 nexus_bits_uint32_lo_u16(uint32 value) /* NOLINT */ {
+  return (uint16)(value & 0xFFFFu);
+}
+
+static uint16 nexus_bits_uint32_hi_u16(uint32 value) /* NOLINT */ {
+  return (uint16)((value >> 16) & 0xFFFFu);
+}
+
+static uint32 nexus_bits_uint64_lo_u32(uint64 value) /* NOLINT */ {
+  return (uint32)(value & 0xFFFFFFFFULL);
+}
+
+static uint32 nexus_bits_uint64_hi_u32(uint64 value) /* NOLINT */ {
+  return (uint32)((value >> 32) & 0xFFFFFFFFULL);
+}
+
+/* --- 16-Bit Operations (2x uint8) --- */
+
+static uint16 nexus_bits_uint16_pack_2u8_lsb(uint8 b0, uint8 b1) /* NOLINT */ {
+  return (uint16)((uint16)b0 | ((uint16)b1 << 8));
+}
+
+static uint16 nexus_bits_uint16_pack_2u8_msb(uint8 b0, uint8 b1) /* NOLINT */ {
+  return (uint16)(((uint16)b0 << 8) | (uint16)b1);
+}
+
+static void nexus_bits_uint16_unpack_2u8_lsb(uint16 value, uint8 *out_b0, uint8 *out_b1) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_b0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b1 != NULL);
+
+  *out_b0 = (uint8)(value & 0xFFu);
+  *out_b1 = (uint8)((value >> 8) & 0xFFu);
+}
+
+static void nexus_bits_uint16_unpack_2u8_msb(uint16 value, uint8 *out_b0, uint8 *out_b1) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_b0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b1 != NULL);
+
+  *out_b0 = (uint8)((value >> 8) & 0xFFu);
+  *out_b1 = (uint8)(value & 0xFFu);
+}
+
+/* --- 32-Bit Operations (2x uint16, 4x uint8) --- */
+
+static uint32 nexus_bits_uint32_pack_2u16_lsb(uint16 w0, uint16 w1) /* NOLINT */ {
+  return (uint32)w0 | ((uint32)w1 << 16);
+}
+
+static uint32 nexus_bits_uint32_pack_2u16_msb(uint16 w0, uint16 w1) /* NOLINT */ {
+  return ((uint32)w0 << 16) | (uint32)w1;
+}
+
+static void nexus_bits_uint32_unpack_2u16_lsb(uint32 value, uint16 *out_w0, uint16 *out_w1) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_w0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w1 != NULL);
+
+  *out_w0 = (uint16)(value & 0xFFFFu);
+  *out_w1 = (uint16)((value >> 16) & 0xFFFFu);
+}
+
+static void nexus_bits_uint32_unpack_2u16_msb(uint32 value, uint16 *out_w0, uint16 *out_w1) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_w0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w1 != NULL);
+
+  *out_w0 = (uint16)((value >> 16) & 0xFFFFu);
+  *out_w1 = (uint16)(value & 0xFFFFu);
+}
+
+static uint32 nexus_bits_uint32_pack_4u8_lsb(uint8 b0, uint8 b1, uint8 b2, uint8 b3) /* NOLINT */ {
+  return (uint32)b0 | ((uint32)b1 << 8) | ((uint32)b2 << 16) | ((uint32)b3 << 24);
+}
+
+static uint32 nexus_bits_uint32_pack_4u8_msb(uint8 b0, uint8 b1, uint8 b2, uint8 b3) /* NOLINT */ {
+  return ((uint32)b0 << 24) | ((uint32)b1 << 16) | ((uint32)b2 << 8) | (uint32)b3;
+}
+
+static void nexus_bits_uint32_unpack_4u8_lsb(uint32 value, uint8 *out_b0, uint8 *out_b1, uint8 *out_b2, uint8 *out_b3) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_b0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b1 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b2 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b3 != NULL);
+
+  *out_b0 = (uint8)(value & 0xFFu);
+  *out_b1 = (uint8)((value >> 8) & 0xFFu);
+  *out_b2 = (uint8)((value >> 16) & 0xFFu);
+  *out_b3 = (uint8)((value >> 24) & 0xFFu);
+}
+
+static void nexus_bits_uint32_unpack_4u8_msb(uint32 value, uint8 *out_b0, uint8 *out_b1, uint8 *out_b2, uint8 *out_b3) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_b0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b1 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b2 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b3 != NULL);
+
+  *out_b0 = (uint8)((value >> 24) & 0xFFu);
+  *out_b1 = (uint8)((value >> 16) & 0xFFu);
+  *out_b2 = (uint8)((value >> 8) & 0xFFu);
+  *out_b3 = (uint8)(value & 0xFFu);
+}
+
+/* --- 64-Bit Operations (2x uint32, 4x uint16, 8x uint8) --- */
+
+static uint64 nexus_bits_uint64_pack_2u32_lsb(uint32 d0, uint32 d1) /* NOLINT */ {
+  return (uint64)d0 | ((uint64)d1 << 32);
+}
+
+static uint64 nexus_bits_uint64_pack_2u32_msb(uint32 d0, uint32 d1) /* NOLINT */ {
+  return ((uint64)d0 << 32) | (uint64)d1;
+}
+
+static void nexus_bits_uint64_unpack_2u32_lsb(uint64 value, uint32 *out_d0, uint32 *out_d1) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_d0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_d1 != NULL);
+
+  *out_d0 = (uint32)(value & 0xFFFFFFFFULL);
+  *out_d1 = (uint32)((value >> 32) & 0xFFFFFFFFULL);
+}
+
+static void nexus_bits_uint64_unpack_2u32_msb(uint64 value, uint32 *out_d0, uint32 *out_d1) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_d0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_d1 != NULL);
+
+  *out_d0 = (uint32)((value >> 32) & 0xFFFFFFFFULL);
+  *out_d1 = (uint32)(value & 0xFFFFFFFFULL);
+}
+
+static uint64 nexus_bits_uint64_pack_4u16_lsb(uint16 w0, uint16 w1, uint16 w2, uint16 w3) /* NOLINT */ {
+  return (uint64)w0 | ((uint64)w1 << 16) | ((uint64)w2 << 32) | ((uint64)w3 << 48);
+}
+
+static uint64 nexus_bits_uint64_pack_4u16_msb(uint16 w0, uint16 w1, uint16 w2, uint16 w3) /* NOLINT */ {
+  return ((uint64)w0 << 48) | ((uint64)w1 << 32) | ((uint64)w2 << 16) | (uint64)w3;
+}
+
+static void nexus_bits_uint64_unpack_4u16_lsb(uint64 value, uint16 *out_w0, uint16 *out_w1, uint16 *out_w2, uint16 *out_w3) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_w0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w1 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w2 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w3 != NULL);
+
+  *out_w0 = (uint16)(value & 0xFFFFu);
+  *out_w1 = (uint16)((value >> 16) & 0xFFFFu);
+  *out_w2 = (uint16)((value >> 32) & 0xFFFFu);
+  *out_w3 = (uint16)((value >> 48) & 0xFFFFu);
+}
+
+static void nexus_bits_uint64_unpack_4u16_msb(uint64 value, uint16 *out_w0, uint16 *out_w1, uint16 *out_w2, uint16 *out_w3) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_w0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w1 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w2 != NULL);
+  NEXUS_ASSERT_DEBUG(out_w3 != NULL);
+
+  *out_w0 = (uint16)((value >> 48) & 0xFFFFu);
+  *out_w1 = (uint16)((value >> 32) & 0xFFFFu);
+  *out_w2 = (uint16)((value >> 16) & 0xFFFFu);
+  *out_w3 = (uint16)(value & 0xFFFFu);
+}
+
+static uint64 nexus_bits_uint64_pack_8u8_lsb(uint8 b0, uint8 b1, uint8 b2, uint8 b3, /* NOLINT */
+                                             uint8 b4, uint8 b5, uint8 b6, uint8 b7) /* NOLINT */ {
+  return (uint64)b0 | ((uint64)b1 << 8) | ((uint64)b2 << 16) | ((uint64)b3 << 24) | ((uint64)b4 << 32) | ((uint64)b5 << 40) | ((uint64)b6 << 48) |
+         ((uint64)b7 << 56);
+}
+
+static uint64 nexus_bits_uint64_pack_8u8_msb(uint8 b0, uint8 b1, uint8 b2, uint8 b3, /* NOLINT */
+                                             uint8 b4, uint8 b5, uint8 b6, uint8 b7) /* NOLINT */ {
+  return ((uint64)b0 << 56) | ((uint64)b1 << 48) | ((uint64)b2 << 40) | ((uint64)b3 << 32) | ((uint64)b4 << 24) | ((uint64)b5 << 16) |
+         ((uint64)b6 << 8) | (uint64)b7;
+}
+
+static void nexus_bits_uint64_unpack_8u8_lsb(uint64 value, uint8 *out_b0, uint8 *out_b1, uint8 *out_b2, uint8 *out_b3, /* NOLINT */
+                                             uint8 *out_b4, uint8 *out_b5, uint8 *out_b6, uint8 *out_b7) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_b0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b1 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b2 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b3 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b4 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b5 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b6 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b7 != NULL);
+
+  *out_b0 = (uint8)(value & 0xFFu);
+  *out_b1 = (uint8)((value >> 8) & 0xFFu);
+  *out_b2 = (uint8)((value >> 16) & 0xFFu);
+  *out_b3 = (uint8)((value >> 24) & 0xFFu);
+  *out_b4 = (uint8)((value >> 32) & 0xFFu);
+  *out_b5 = (uint8)((value >> 40) & 0xFFu);
+  *out_b6 = (uint8)((value >> 48) & 0xFFu);
+  *out_b7 = (uint8)((value >> 56) & 0xFFu);
+}
+
+static void nexus_bits_uint64_unpack_8u8_msb(uint64 value, uint8 *out_b0, uint8 *out_b1, uint8 *out_b2, uint8 *out_b3, /* NOLINT */
+                                             uint8 *out_b4, uint8 *out_b5, uint8 *out_b6, uint8 *out_b7) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(out_b0 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b1 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b2 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b3 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b4 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b5 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b6 != NULL);
+  NEXUS_ASSERT_DEBUG(out_b7 != NULL);
+
+  *out_b0 = (uint8)((value >> 56) & 0xFFu);
+  *out_b1 = (uint8)((value >> 48) & 0xFFu);
+  *out_b2 = (uint8)((value >> 40) & 0xFFu);
+  *out_b3 = (uint8)((value >> 32) & 0xFFu);
+  *out_b4 = (uint8)((value >> 24) & 0xFFu);
+  *out_b5 = (uint8)((value >> 16) & 0xFFu);
+  *out_b6 = (uint8)((value >> 8) & 0xFFu);
+  *out_b7 = (uint8)(value & 0xFFu);
+}
+
+/* --- Bit Count & Bit Scan Operations --- */
+
+static uint64 nexus_bits_uint64_clear_lowest_set(uint64 value) /* NOLINT */ {
+  return value & (value - 1ULL);
+}
+
+static uint32 nexus_bits_uint64_trailing_zeros(uint64 value) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(value != 0ULL);
+
+#if defined(__GNUC__) || defined(__clang__)
+  return (uint32)__builtin_ctzll(value);
+#else
+  {
+    static const uint8 index64[64] = {0,  47, 1,  56, 48, 27, 2,  60, 57, 49, 41, 37, 28, 16, 3,  61, 54, 58, 35, 52, 50, 42,
+                                      21, 44, 38, 32, 29, 23, 17, 11, 4,  62, 46, 55, 26, 59, 40, 36, 15, 53, 34, 51, 20, 43,
+                                      31, 22, 10, 45, 25, 39, 14, 33, 19, 30, 9,  24, 13, 18, 8,  12, 7,  6,  5,  63};
+
+    return (uint32)index64[(uint32)(((value ^ (value - 1ULL)) * 0x03f79d71b4cb0a89ULL) >> 58)];
+  }
+#endif
+}
+
+static uint32 nexus_bits_uint64_popcount(uint64 value) /* NOLINT */ {
+#if defined(__GNUC__) || defined(__clang__)
+  return (uint32)__builtin_popcountll(value);
+#else
+  {
+    uint32 count;
+
+    count = 0;
+    while (value != 0ULL) {
+      value = nexus_bits_uint64_clear_lowest_set(value);
+      count++;
+    }
+    return count;
+  }
+#endif
+}
+
+static uint64 nexus_bits_hash_mix_u64(uint64 hash, uint64 value) /* NOLINT */ {
+  hash ^= value;
+  hash *= 0x9E3779B97F4A7C15ULL;
+  return hash;
 }
 
 /* ---------------------------------------------------------------------------- */
