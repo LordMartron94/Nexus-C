@@ -518,6 +518,177 @@ facilities or unknown codes within a registered facility fall back to "Error XX-
 extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
 
 /* ---------------------------------------------------------------------------- */
+/* ASSERTIONS                                                                   */
+/* ---------------------------------------------------------------------------- */
+
+#ifndef NEXUS_ASSERTIONS_ENABLED
+#  define NEXUS_ASSERTIONS_ENABLED 1
+#endif
+
+#ifndef NEXUS_DEBUG_ENABLED
+#  define NEXUS_DEBUG_ENABLED 1
+#endif
+
+#ifndef NEXUS_ASSERTIONS_RUNTIME_ENABLED
+#  define NEXUS_ASSERTIONS_RUNTIME_ENABLED 1
+#endif
+
+/*
+ErrorMessageReportCallback is the callback that gets invoked when an assertion fails.
+
+This is usually set to either an "ERROR" or "CRITICAL" report in a logger, depending on client interpretation.
+*/
+typedef void ErrorMessageReportCallback(void *user_data, const char *message, const char *file, uint32 line);
+
+/*
+nexus_assertions_is_active returns TRUE when compile-time assertions are enabled, runtime assertion gating is
+enabled, and the runtime switch has not been cleared by nexus_assertions_runtime_enabled_set(FALSE).
+*/
+extern boolean nexus_assertions_is_active(void);
+
+/*
+nexus_assertions_runtime_enabled_get returns the current runtime assertion switch state.
+*/
+extern boolean nexus_assertions_runtime_enabled_get(void);
+
+/*
+nexus_assertions_runtime_enabled_set sets the runtime assertion switch without changing compile-time configuration.
+
+When NEXUS_ASSERTIONS_RUNTIME_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
+When NEXUS_ASSERTIONS_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
+*/
+extern void nexus_assertions_runtime_enabled_set(boolean enabled);
+
+/*
+nexus_assertions_error_callback_set sets the callback used for reporting assertion failures.
+*/
+extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
+
+/*
+nexus_assertions_error_callback_installed_get returns TRUE when an assertion failure callback is registered.
+*/
+extern boolean nexus_assertions_error_callback_installed_get(void);
+
+/*
+nexus_assertions_failure_report reports an assertion failure with a plain message string.
+*/
+extern void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line);
+
+#if NEXUS_ASSERTIONS_ENABLED
+
+#  if defined(_MSC_VER)
+#    include <intrin.h>
+#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+      __debugbreak();                                                                                                                                \
+      abort();
+#  elif defined(__GNUC__) || defined(__clang__)
+/*
+  Each trap instruction advances the PC; the trailing nop keeps that address inside the
+  assertion call-site line range so debuggers stop on the NEXUS_ASSERT* invocation, not the next statement.
+*/
+#    if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("brk #0\n\tnop");                                                                                                       \
+        abort();
+#    elif defined(__arm__) || defined(__ARM_ARCH) || defined(_M_ARM)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("bkpt #0\n\tnop");                                                                                                      \
+        abort();
+#    elif defined(__riscv) || defined(__riscv__)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("ebreak\n\tnop");                                                                                                       \
+        abort();
+#    elif defined(__i386__) || defined(__x86_64__) || defined(__amd64__)
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
+        __asm__ __volatile__("int3\n\tnop");                                                                                                         \
+        abort();
+#    else
+#      define NEXUS_ASSERTIONS_DEBUG_TRAP() __builtin_trap();
+#    endif
+#  else /* Generic fallback */
+#    include <signal.h>
+#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
+      (void)raise(SIGTRAP);                                                                                                                          \
+      abort();
+#  endif /* NEXUS_ASSERTIONS_DEBUG_TRAP implementation selection */
+
+#  if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
+/*
+Expose runtime assertion state for inline macro evaluation in hot paths.
+*/
+extern boolean n_runtime_assertions_active;
+#    define NEXUS_INTERNAL_ASSERT_ACTIVE() (n_runtime_assertions_active)
+#  else
+#    define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
+#  endif
+
+#  if NEXUS_ASSERTIONS_RUNTIME_ENABLED
+
+#    define NEXUS_ASSERT(expr)                                                                                                                       \
+      do {                                                                                                                                           \
+        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                        \
+          if (!(expr)) {                                                                                                                             \
+            nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                          \
+          }                                                                                                                                          \
+        }                                                                                                                                            \
+      } while (0)
+
+#    define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                      \
+      do {                                                                                                                                           \
+        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                        \
+          if (!(expr)) {                                                                                                                             \
+            nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                     \
+          }                                                                                                                                          \
+        }                                                                                                                                            \
+      } while (0)
+
+#    if NEXUS_DEBUG_ENABLED
+
+#      define NEXUS_ASSERT_DEBUG(expr)                                                                                                               \
+        do {                                                                                                                                         \
+          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                      \
+            if (!(expr)) {                                                                                                                           \
+              nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                        \
+            }                                                                                                                                        \
+          }                                                                                                                                          \
+        } while (0)
+
+#      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                              \
+        do {                                                                                                                                         \
+          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                      \
+            if (!(expr)) {                                                                                                                           \
+              nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                   \
+            }                                                                                                                                        \
+          }                                                                                                                                          \
+        } while (0)
+
+#    else
+
+#      define NEXUS_ASSERT_DEBUG(expr)
+#      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
+
+#    endif /* NEXUS_DEBUG_ENABLED */
+
+#  else /* NEXUS_ASSERTIONS_RUNTIME_ENABLED */
+
+#    define NEXUS_ASSERT(expr)
+#    define NEXUS_ASSERT_MESSAGE(expr, message)
+#    define NEXUS_ASSERT_DEBUG(expr)
+#    define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
+
+#  endif /* NEXUS_ASSERTIONS_RUNTIME_ENABLED */
+
+#else
+
+#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
+#  define NEXUS_ASSERT(expr)
+#  define NEXUS_ASSERT_MESSAGE(expr, message)
+#  define NEXUS_ASSERT_DEBUG(expr)
+#  define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
+
+#endif /* NEXUS_ASSERTIONS_ENABLED */
+
+/* ---------------------------------------------------------------------------- */
 /* REALS                                                                        */
 /* ---------------------------------------------------------------------------- */
 
@@ -1601,6 +1772,136 @@ Returns < 0 if string_a is lexicographically less, or > 0 if greater.
 */
 extern int nexus_strings_string_compare_length(const char *string_a, const char *string_b, uint_large max_length);
 
+/*
+nexus_strings_string_length gets the current length of a string.
+
+string must not be NULL.
+*/
+static uint_large nexus_strings_string_length(const char *string) /* NOLINT */ {
+  const char *ptr;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  ptr = string;
+  while (*ptr) {
+    ptr++;
+  }
+  return (uint_large)(ptr - string);
+}
+
+/*
+Checks if a string exactly starts with the provided prefix.
+
+string and prefix must not be NULL.
+*/
+static boolean nexus_strings_string_starts_with(const char *string, const char *prefix) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(prefix != NULL);
+  while (*prefix) {
+    if (*string != *prefix) {
+      return FALSE;
+    }
+    string++;
+    prefix++;
+  }
+  return TRUE;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare(const char *str1, const char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *(const unsigned char *)str1 - *(const unsigned char *)str2;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *str1 - *str2;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*str1 == *(const unsigned char *)str2)) {
+    str1++;
+    str2++;
+  }
+  return *str1 - *(const unsigned char *)str2;
+}
+
+/*
+Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
+
+str1 and str2 must not be NULL.
+*/
+static int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2) /* NOLINT */ {
+  NEXUS_ASSERT_DEBUG(str1 != NULL);
+  NEXUS_ASSERT_DEBUG(str2 != NULL);
+  while (*str1 && (*(const unsigned char *)str1 == *str2)) {
+    str1++;
+    str2++;
+  }
+  return *(const unsigned char *)str1 - *str2;
+}
+
+/*
+Checks if two strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare`
+*/
+static boolean nexus_strings_string_equals(const char *str1, const char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare(str1, str2) == 0;
+}
+
+/*
+Checks if two unsigned strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_unsigned`
+*/
+static boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare_unsigned(str1, str2) == 0;
+}
+
+/*
+Checks if two mixed strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_mixed`
+*/
+static boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare_mixed(str1, str2) == 0;
+}
+
+/*
+Checks if two mixed strings are equal.
+
+Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
+*/
+static boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2) /* NOLINT */ {
+  return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
+}
+
 /* ---------------------------------------------------------------------------- */
 /* TABULAR                                                                      */
 /* ---------------------------------------------------------------------------- */
@@ -2269,177 +2570,6 @@ Returns NEXUS_ERROR_INVALID_ARGUMENT when buffer_max_length is zero.
 extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length, uint_large *out_bytes_read);
 
 /* ---------------------------------------------------------------------------- */
-/* ASSERTIONS                                                                   */
-/* ---------------------------------------------------------------------------- */
-
-#ifndef NEXUS_ASSERTIONS_ENABLED
-#  define NEXUS_ASSERTIONS_ENABLED 1
-#endif
-
-#ifndef NEXUS_DEBUG_ENABLED
-#  define NEXUS_DEBUG_ENABLED 1
-#endif
-
-#ifndef NEXUS_ASSERTIONS_RUNTIME_ENABLED
-#  define NEXUS_ASSERTIONS_RUNTIME_ENABLED 1
-#endif
-
-/*
-ErrorMessageReportCallback is the callback that gets invoked when an assertion fails.
-
-This is usually set to either an "ERROR" or "CRITICAL" report in a logger, depending on client interpretation.
-*/
-typedef void ErrorMessageReportCallback(void *user_data, const char *message, const char *file, uint32 line);
-
-/*
-nexus_assertions_is_active returns TRUE when compile-time assertions are enabled, runtime assertion gating is
-enabled, and the runtime switch has not been cleared by nexus_assertions_runtime_enabled_set(FALSE).
-*/
-extern boolean nexus_assertions_is_active(void);
-
-/*
-nexus_assertions_runtime_enabled_get returns the current runtime assertion switch state.
-*/
-extern boolean nexus_assertions_runtime_enabled_get(void);
-
-/*
-nexus_assertions_runtime_enabled_set sets the runtime assertion switch without changing compile-time configuration.
-
-When NEXUS_ASSERTIONS_RUNTIME_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
-When NEXUS_ASSERTIONS_ENABLED is 0 at compile time, this is a no-op and assert macros are already removed.
-*/
-extern void nexus_assertions_runtime_enabled_set(boolean enabled);
-
-/*
-nexus_assertions_error_callback_set sets the callback used for reporting assertion failures.
-*/
-extern void nexus_assertions_error_callback_set(ErrorMessageReportCallback *callback, void *user_data);
-
-/*
-nexus_assertions_error_callback_installed_get returns TRUE when an assertion failure callback is registered.
-*/
-extern boolean nexus_assertions_error_callback_installed_get(void);
-
-/*
-nexus_assertions_failure_report reports an assertion failure with a plain message string.
-*/
-extern void nexus_assertions_failure_report(const char *expression, const char *message, const char *file, uint32 line);
-
-#if NEXUS_ASSERTIONS_ENABLED
-
-#  if defined(_MSC_VER)
-#    include <intrin.h>
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-      __debugbreak();                                                                                                                                \
-      abort();
-#  elif defined(__GNUC__) || defined(__clang__)
-/*
-  Each trap instruction advances the PC; the trailing nop keeps that address inside the
-  assertion call-site line range so debuggers stop on the NEXUS_ASSERT* invocation, not the next statement.
-*/
-#    if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
-        __asm__ __volatile__("brk #0\n\tnop");                                                                                                       \
-        abort();
-#    elif defined(__arm__) || defined(__ARM_ARCH) || defined(_M_ARM)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
-        __asm__ __volatile__("bkpt #0\n\tnop");                                                                                                      \
-        abort();
-#    elif defined(__riscv) || defined(__riscv__)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
-        __asm__ __volatile__("ebreak\n\tnop");                                                                                                       \
-        abort();
-#    elif defined(__i386__) || defined(__x86_64__) || defined(__amd64__)
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                          \
-        __asm__ __volatile__("int3\n\tnop");                                                                                                         \
-        abort();
-#    else
-#      define NEXUS_ASSERTIONS_DEBUG_TRAP() __builtin_trap();
-#    endif
-#  else /* Generic fallback */
-#    include <signal.h>
-#    define NEXUS_ASSERTIONS_DEBUG_TRAP()                                                                                                            \
-      (void)raise(SIGTRAP);                                                                                                                          \
-      abort();
-#  endif /* NEXUS_ASSERTIONS_DEBUG_TRAP implementation selection */
-
-#  if NEXUS_ASSERTIONS_ENABLED && NEXUS_ASSERTIONS_RUNTIME_ENABLED
-/*
-Expose runtime assertion state for inline macro evaluation in hot paths.
-*/
-extern boolean n_runtime_assertions_active;
-#    define NEXUS_INTERNAL_ASSERT_ACTIVE() (n_runtime_assertions_active)
-#  else
-#    define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
-#  endif
-
-#  if NEXUS_ASSERTIONS_RUNTIME_ENABLED
-
-#    define NEXUS_ASSERT(expr)                                                                                                                       \
-      do {                                                                                                                                           \
-        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                        \
-          if (!(expr)) {                                                                                                                             \
-            nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                          \
-          }                                                                                                                                          \
-        }                                                                                                                                            \
-      } while (0)
-
-#    define NEXUS_ASSERT_MESSAGE(expr, message)                                                                                                      \
-      do {                                                                                                                                           \
-        if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                        \
-          if (!(expr)) {                                                                                                                             \
-            nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                     \
-          }                                                                                                                                          \
-        }                                                                                                                                            \
-      } while (0)
-
-#    if NEXUS_DEBUG_ENABLED
-
-#      define NEXUS_ASSERT_DEBUG(expr)                                                                                                               \
-        do {                                                                                                                                         \
-          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                      \
-            if (!(expr)) {                                                                                                                           \
-              nexus_assertions_failure_report(#expr, "", __FILE__, __LINE__);                                                                        \
-            }                                                                                                                                        \
-          }                                                                                                                                          \
-        } while (0)
-
-#      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)                                                                                              \
-        do {                                                                                                                                         \
-          if (NEXUS_INTERNAL_ASSERT_ACTIVE()) {                                                                                                      \
-            if (!(expr)) {                                                                                                                           \
-              nexus_assertions_failure_report(#expr, message, __FILE__, __LINE__);                                                                   \
-            }                                                                                                                                        \
-          }                                                                                                                                          \
-        } while (0)
-
-#    else
-
-#      define NEXUS_ASSERT_DEBUG(expr)
-#      define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
-
-#    endif /* NEXUS_DEBUG_ENABLED */
-
-#  else /* NEXUS_ASSERTIONS_RUNTIME_ENABLED */
-
-#    define NEXUS_ASSERT(expr)
-#    define NEXUS_ASSERT_MESSAGE(expr, message)
-#    define NEXUS_ASSERT_DEBUG(expr)
-#    define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
-
-#  endif /* NEXUS_ASSERTIONS_RUNTIME_ENABLED */
-
-#else
-
-#  define NEXUS_INTERNAL_ASSERT_ACTIVE() (FALSE)
-#  define NEXUS_ASSERT(expr)
-#  define NEXUS_ASSERT_MESSAGE(expr, message)
-#  define NEXUS_ASSERT_DEBUG(expr)
-#  define NEXUS_ASSERT_MESSAGE_DEBUG(expr, message)
-
-#endif /* NEXUS_ASSERTIONS_ENABLED */
-
-/* ---------------------------------------------------------------------------- */
 /* MEMORY                                                                       */
 /* ---------------------------------------------------------------------------- */
 
@@ -2545,136 +2675,6 @@ static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLIN
   nexus_memory_bytes_set(dest, 0, byte_count);
 }
 #endif
-
-/*
-nexus_strings_string_length gets the current length of a string.
-
-string must not be NULL.
-*/
-static uint_large nexus_strings_string_length(const char *string) /* NOLINT */ {
-  const char *ptr;
-
-  NEXUS_ASSERT_DEBUG(string != NULL);
-  ptr = string;
-  while (*ptr) {
-    ptr++;
-  }
-  return (uint_large)(ptr - string);
-}
-
-/*
-Checks if a string exactly starts with the provided prefix.
-
-string and prefix must not be NULL.
-*/
-static boolean nexus_strings_string_starts_with(const char *string, const char *prefix) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(string != NULL);
-  NEXUS_ASSERT_DEBUG(prefix != NULL);
-  while (*prefix) {
-    if (*string != *prefix) {
-      return FALSE;
-    }
-    string++;
-    prefix++;
-  }
-  return TRUE;
-}
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-static int32 nexus_strings_string_compare(const char *str1, const char *str2) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*str1 == *str2)) {
-    str1++;
-    str2++;
-  }
-  return *(const unsigned char *)str1 - *(const unsigned char *)str2;
-}
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-static int32 nexus_strings_string_compare_unsigned(const unsigned char *str1, const unsigned char *str2) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*str1 == *str2)) {
-    str1++;
-    str2++;
-  }
-  return *str1 - *str2;
-}
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-static int32 nexus_strings_string_compare_mixed(const unsigned char *str1, const char *str2) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*str1 == *(const unsigned char *)str2)) {
-    str1++;
-    str2++;
-  }
-  return *str1 - *(const unsigned char *)str2;
-}
-
-/*
-Performs a lexicographical ASCII comparison. Returns <0 if str1 < str2, 0 if equal, >0 if str1 > str2.
-
-str1 and str2 must not be NULL.
-*/
-static int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsigned char *str2) /* NOLINT */ {
-  NEXUS_ASSERT_DEBUG(str1 != NULL);
-  NEXUS_ASSERT_DEBUG(str2 != NULL);
-  while (*str1 && (*(const unsigned char *)str1 == *str2)) {
-    str1++;
-    str2++;
-  }
-  return *(const unsigned char *)str1 - *str2;
-}
-
-/*
-Checks if two strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare`
-*/
-static boolean nexus_strings_string_equals(const char *str1, const char *str2) /* NOLINT */ {
-  return nexus_strings_string_compare(str1, str2) == 0;
-}
-
-/*
-Checks if two unsigned strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare_unsigned`
-*/
-static boolean nexus_strings_string_equals_unsigned(const unsigned char *str1, const unsigned char *str2) /* NOLINT */ {
-  return nexus_strings_string_compare_unsigned(str1, str2) == 0;
-}
-
-/*
-Checks if two mixed strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare_mixed`
-*/
-static boolean nexus_strings_string_equals_mixed(const unsigned char *str1, const char *str2) /* NOLINT */ {
-  return nexus_strings_string_compare_mixed(str1, str2) == 0;
-}
-
-/*
-Checks if two mixed strings are equal.
-
-Convenience wrapper around `nexus_strings_string_compare_mixed_alt`
-*/
-static boolean nexus_strings_string_equals_mixed_alt(const char *str1, const unsigned char *str2) /* NOLINT */ {
-  return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
-}
 
 /* ---------------------------------------------------------------------------- */
 /* BITS                                                                        */
