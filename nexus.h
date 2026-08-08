@@ -1593,6 +1593,14 @@ buffer is NULL, or no token remains.
 */
 extern NError nexus_strings_string_read_word(const char **cursor, char *buffer, uint_large buffer_max_length);
 
+/*
+nexus_strings_string_compare_length compares up to max_length characters of string_a and string_b.
+
+Returns 0 if they are identical up to that length or until a null-terminator is reached.
+Returns < 0 if string_a is lexicographically less, or > 0 if greater.
+*/
+extern int nexus_strings_string_compare_length(const char *string_a, const char *string_b, uint_large max_length);
+
 /* ---------------------------------------------------------------------------- */
 /* TABULAR                                                                      */
 /* ---------------------------------------------------------------------------- */

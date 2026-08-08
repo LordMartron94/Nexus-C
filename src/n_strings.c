@@ -39,10 +39,10 @@ If truncation cut mid-codepoint, drop the incomplete trailing UTF-8 lead/continu
 Prevents lone 0xCE (etc.) from rendering as Latin-1 "Î" and skewing display width.
 */
 static void n_strings_utf8_clip_incomplete_tail(char *string) {
-  uint_large      length;
-  uint_large      lead_index;
-  unsigned char   lead;
-  uint32          expected;
+  uint_large    length;
+  uint_large    lead_index;
+  unsigned char lead;
+  uint32        expected;
 
   if (string == NULL) {
     return;
@@ -342,13 +342,14 @@ NexusStringFormatResult nexus_strings_quantity_format(char *string, uint_large m
   return n_strings_quantity_format_scaled(string, max_string_length, scaled_value, unit_index, NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES);
 }
 
-NexusStringFormatResult nexus_strings_quantity_format_f_real_precision(char *string, uint_large max_string_length, f_real value, uint32 decimal_places) {
-  real64  scaled_value;
-  real64  magnitude;
-  uint32  unit_index;
-  boolean negative;
-  boolean is_nonfinite;
-  int64   rounded_value;
+NexusStringFormatResult nexus_strings_quantity_format_f_real_precision(char *string, uint_large max_string_length, f_real value,
+                                                                       uint32 decimal_places) {
+  real64                  scaled_value;
+  real64                  magnitude;
+  uint32                  unit_index;
+  boolean                 negative;
+  boolean                 is_nonfinite;
+  int64                   rounded_value;
   NexusStringFormatResult nonfinite_result;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
@@ -466,8 +467,8 @@ void nexus_strings_string_copy(char *dest, uint_large dest_max_len, const char *
 }
 
 boolean nexus_strings_string_append(char *dest, uint_large dest_max_len, const char *src) {
-  uint_large cursor;
-  uint_large remaining_length;
+  uint_large              cursor;
+  uint_large              remaining_length;
   NexusStringFormatResult copy_result;
 
   NEXUS_ASSERT_DEBUG(dest != NULL);
@@ -621,8 +622,8 @@ static NError nexus_strings_string_parse_signed_decimal(const char *string, int6
 }
 
 NError nexus_strings_string_parse_uint8(const char *string, uint8 *out_value) {
-  uint64     parsed_value;
-  NError     status;
+  uint64 parsed_value;
+  NError status;
 
   status = nexus_strings_string_parse_unsigned_decimal(string, (uint64)UINT8_MAX_VAL, &parsed_value);
   if (status != NEXUS_ERROR_NONE) {
@@ -752,7 +753,7 @@ boolean nexus_strings_string_find(const char *haystack, const char *needle, cons
 }
 
 NError nexus_strings_string_split_on_first_delimiter(const char *string, char delimiter, char *left_buffer, uint_large left_max_length,
-                                                       char *right_buffer, uint_large right_max_length) {
+                                                     char *right_buffer, uint_large right_max_length) {
   uint_large index;
   uint_large left_length;
 
@@ -868,8 +869,8 @@ NError nexus_strings_string_parse_hex_uint64(const char *string, uint64 *out_val
 }
 
 NError nexus_strings_string_parse_hex_uint8(const char *string, uint8 *out_value) {
-  uint64     parsed_value;
-  NError     status;
+  uint64 parsed_value;
+  NError status;
 
   status = nexus_strings_string_parse_hex_uint64(string, &parsed_value);
   if (status != NEXUS_ERROR_NONE) {
@@ -1151,8 +1152,7 @@ static boolean n_strings_utf8_decode_at(const unsigned char *text, uint32 *out_c
     byte_1 = text[1];
     byte_2 = text[2];
     byte_3 = text[3];
-    if (byte_1 == '\0' || byte_2 == '\0' || byte_3 == '\0' || (byte_1 & 0xC0U) != 0x80U || (byte_2 & 0xC0U) != 0x80U ||
-        (byte_3 & 0xC0U) != 0x80U) {
+    if (byte_1 == '\0' || byte_2 == '\0' || byte_3 == '\0' || (byte_1 & 0xC0U) != 0x80U || (byte_2 & 0xC0U) != 0x80U || (byte_3 & 0xC0U) != 0x80U) {
       *out_codepoint  = (uint32)lead;
       *out_byte_count = 1;
       return TRUE;
@@ -1189,8 +1189,9 @@ static uint32 n_strings_codepoint_display_width(uint32 codepoint) {
     return 0;
   }
 
-  if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
-      (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE1FU) || (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) ||
+  if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) ||
+      (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) || (codepoint >= 0xF900U && codepoint <= 0xFAFFU) ||
+      (codepoint >= 0xFE10U && codepoint <= 0xFE1FU) || (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) ||
       (codepoint >= 0xFF00U && codepoint <= 0xFF60U) || (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U)) {
     return 2;
   }
@@ -1200,10 +1201,10 @@ static uint32 n_strings_codepoint_display_width(uint32 codepoint) {
 
 static void n_strings_display_measure(const char *text, uint32 max_display_width, boolean limit_display_width, uint32 *out_display_width,
                                       uint_large *out_byte_length) {
-  const char         *cursor;
+  const char          *cursor;
   const unsigned char *bytes;
-  uint32              display_width;
-  uint_large          byte_length;
+  uint32               display_width;
+  uint_large           byte_length;
 
   display_width = 0;
   byte_length   = 0;
@@ -1267,4 +1268,23 @@ uint_large nexus_strings_display_width_prefix_length_get(const char *text, uint3
 
   n_strings_display_measure(text, max_display_width, TRUE, NULL, &byte_length);
   return byte_length;
+}
+
+int nexus_strings_string_compare_length(const char *string_a, const char *string_b, uint_large max_length) {
+  uint_large i;
+
+  if (string_a == NULL || string_b == NULL) {
+    return (string_a == string_b) ? 0 : ((string_a == NULL) ? -1 : 1);
+  }
+
+  for (i = 0; i < max_length; i++) {
+    if (string_a[i] != string_b[i]) {
+      return (int)((unsigned char)string_a[i] - (unsigned char)string_b[i]);
+    }
+    if (string_a[i] == '\0') {
+      return 0;
+    }
+  }
+
+  return 0;
 }
