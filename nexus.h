@@ -1168,7 +1168,10 @@ instead of a clean libc exit. status_code is currently unused but reserved for f
 */
 extern void exit_crash(uint32 status_code);
 
-#define NEXUS_SIZEOF(type) ((size_t)sizeof(type))
+#define NEXUS_SIZEOF(type)                             ((size_t)sizeof(type))
+#define NEXUS_ARRAY_SIZE_BYTES(array)                  ((size_t)sizeof(array))
+#define NEXUS_ARRAY_SIZE_ELEMENTS(array)               ((uint64)sizeof(array) / (uint64)sizeof((array)[0]))
+#define NEXUS_MEMORY_OFFSET(base_pointer, byte_offset) ((void *)((unsigned char *)(base_pointer) + (size_t)(byte_offset)))
 
 #define NEXUS_ALIGNOF(type)                                                                                                                          \
   ((size_t)&(((struct {                                                                                                                              \
@@ -1211,6 +1214,109 @@ extern void exit_crash(uint32 status_code);
 #    define nexus_debug_mem_check_heap_reference(n)
 #  endif
 
+#endif
+
+/*
+NEXUS_MEMORY_PREFETCH_LOCALITY_* map to temporal-locality hints for nexus_memory_prefetch.
+
+Higher locality keeps the line closer to the core; lower locality minimizes cache pollution.
+*/
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_NONE   0
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW    1
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM 2
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH   3
+
+/*
+NEXUS_MEMORY_PREFETCH hints the CPU to load the cache line containing address before it is accessed.
+
+read_write: FALSE prepares for read; TRUE prepares for read-modify-write.
+locality: one of NEXUS_MEMORY_PREFETCH_LOCALITY_*.
+No-op when the platform has no prefetch intrinsic.
+*/
+#if defined(__GNUC__) || defined(__clang__)
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
+#elif defined(_MSC_VER)
+#  include <intrin.h>
+#  include <xmmintrin.h>
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality)                                                                                       \
+    do {                                                                                                                                             \
+      if ((read_write) != FALSE) {                                                                                                                   \
+        _m_prefetchw((void *)(address));                                                                                                             \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM) {                                                                              \
+        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                          \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                 \
+        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                          \
+      } else {                                                                                                                                       \
+        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                          \
+      }                                                                                                                                              \
+    } while (0)
+#else
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) ((void)(address), (void)(read_write), (void)(locality))
+#endif
+
+/*
+nexus_memory_bytes_copy copies byte_count bytes from src into dest.
+
+dest and src must not be NULL when byte_count is greater than zero.
+The regions must not overlap.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_copy so dest and
+src are checked against tracked heap allocations and a memory-debugger log event is emitted when a
+log callback is installed.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+#  define nexus_memory_bytes_copy(dest, src, byte_count) nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
+#else
+static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  memcpy(dest, src, (size_t)byte_count);
+}
+#endif
+
+/*
+nexus_memory_bytes_set writes byte into each of byte_count bytes starting at dest.
+
+dest must not be NULL when byte_count is greater than zero.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_set so dest is
+checked against tracked heap allocations and a memory-debugger log event is emitted when a log
+callback is installed.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+#  define nexus_memory_bytes_set(dest, byte, byte_count) nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
+#else
+static void nexus_memory_bytes_set(void *dest, uint8 byte, uint_large byte_count) /* NOLINT */ {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+
+  memset(dest, (int)byte, (size_t)byte_count);
+}
+#endif
+
+/*
+nexus_memory_bytes_clear writes zero into each of byte_count bytes starting at dest.
+
+dest must not be NULL when byte_count is greater than zero.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_clear so dest is
+checked against tracked heap allocations and a memory-debugger log event is emitted when a log
+callback is installed.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+#  define nexus_memory_bytes_clear(dest, byte_count) nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
+#else
+static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLINT */ {
+  nexus_memory_bytes_set(dest, 0, byte_count);
+}
 #endif
 
 #define NEXUS_FREE_IF_NOT_NULL(ptr)                                                                                                                  \
@@ -2568,113 +2674,6 @@ The line terminator is not copied. A short read at EOF returns the bytes read wi
 Returns NEXUS_ERROR_INVALID_ARGUMENT when buffer_max_length is zero.
 */
 extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length, uint_large *out_bytes_read);
-
-/* ---------------------------------------------------------------------------- */
-/* MEMORY                                                                       */
-/* ---------------------------------------------------------------------------- */
-
-/*
-NEXUS_MEMORY_PREFETCH_LOCALITY_* map to temporal-locality hints for nexus_memory_prefetch.
-
-Higher locality keeps the line closer to the core; lower locality minimizes cache pollution.
-*/
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_NONE   0
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW    1
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM 2
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH   3
-
-/*
-NEXUS_MEMORY_PREFETCH hints the CPU to load the cache line containing address before it is accessed.
-
-read_write: FALSE prepares for read; TRUE prepares for read-modify-write.
-locality: one of NEXUS_MEMORY_PREFETCH_LOCALITY_*.
-No-op when the platform has no prefetch intrinsic.
-*/
-#if defined(__GNUC__) || defined(__clang__)
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
-#elif defined(_MSC_VER)
-#  include <intrin.h>
-#  include <xmmintrin.h>
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality)                                                                                       \
-    do {                                                                                                                                             \
-      if ((read_write) != FALSE) {                                                                                                                   \
-        _m_prefetchw((void *)(address));                                                                                                             \
-      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM) {                                                                              \
-        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                          \
-      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                 \
-        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                          \
-      } else {                                                                                                                                       \
-        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                          \
-      }                                                                                                                                              \
-    } while (0)
-#else
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) ((void)(address), (void)(read_write), (void)(locality))
-#endif
-
-/*
-nexus_memory_bytes_copy copies byte_count bytes from src into dest.
-
-dest and src must not be NULL when byte_count is greater than zero.
-The regions must not overlap.
-
-When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_copy so dest and
-src are checked against tracked heap allocations and a memory-debugger log event is emitted when a
-log callback is installed.
-*/
-#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_copy(dest, src, byte_count) nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
-#else
-static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
-  if (byte_count == 0) {
-    return;
-  }
-
-  NEXUS_ASSERT_DEBUG(dest != NULL);
-  NEXUS_ASSERT_DEBUG(src != NULL);
-
-  memcpy(dest, src, (size_t)byte_count);
-}
-#endif
-
-/*
-nexus_memory_bytes_set writes byte into each of byte_count bytes starting at dest.
-
-dest must not be NULL when byte_count is greater than zero.
-
-When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_set so dest is
-checked against tracked heap allocations and a memory-debugger log event is emitted when a log
-callback is installed.
-*/
-#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_set(dest, byte, byte_count) nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
-#else
-static void nexus_memory_bytes_set(void *dest, uint8 byte, uint_large byte_count) /* NOLINT */ {
-  if (byte_count == 0) {
-    return;
-  }
-
-  NEXUS_ASSERT_DEBUG(dest != NULL);
-
-  memset(dest, (int)byte, (size_t)byte_count);
-}
-#endif
-
-/*
-nexus_memory_bytes_clear writes zero into each of byte_count bytes starting at dest.
-
-dest must not be NULL when byte_count is greater than zero.
-
-When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_clear so dest is
-checked against tracked heap allocations and a memory-debugger log event is emitted when a log
-callback is installed.
-*/
-#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_clear(dest, byte_count) nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
-#else
-static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLINT */ {
-  nexus_memory_bytes_set(dest, 0, byte_count);
-}
-#endif
 
 /* ---------------------------------------------------------------------------- */
 /* BITS                                                                        */
