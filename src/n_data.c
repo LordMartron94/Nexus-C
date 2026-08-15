@@ -1,3 +1,5 @@
+#include <xxhash.h>
+
 #include "../nexus.h"
 
 /* Instantiate all Key-Value function definitions */
@@ -9,3 +11,669 @@ NEXUS_KV_TYPE_TABLE(X_KV_DEF)
 #define X_HEAP_DEF(key_type, suffix) NEXUS_DATA_HEAP_MIN_INDEX_DEFINE(key_type, suffix)
 NEXUS_HEAP_TYPE_TABLE(X_HEAP_DEF)
 #undef X_HEAP_DEF
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL TYPES                                                    */
+/* -------------------------------------------------------------------------- */
+
+#define NEXUS_HASHMAP_GROUP_SLOT_COUNT 8
+#define NEXUS_HASHMAP_GROUP_LOAD_LIMIT 7
+
+#define NEXUS_SWISS_EMPTY   0x80U
+#define NEXUS_SWISS_DELETED 0xFEU
+
+typedef struct HashMap {
+  byte   *data;
+  uint64 *metadata;
+
+  uint_large capacity_groups;
+
+  uint_large element_count;
+  uint_large deleted_count;
+
+  uint_large key_size_bytes;
+  uint_large value_size_bytes;
+
+  uint64 hash_seed;
+} HashMap;
+
+typedef struct HashMapHash {
+  uint_large initial_group_idx;
+  uint8      fingerprint;
+} HashMapHash;
+
+typedef struct HashMapProbe {
+  boolean found;
+  boolean insertable;
+
+  uint_large group_idx;
+  uint8      slot_idx;
+
+  uint8 fingerprint;
+} HashMapProbe;
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL ACCESS                                                   */
+/* -------------------------------------------------------------------------- */
+
+static uint_large nexus_data_hashmap_entry_size_get(const HashMap *hashmap) {
+  return hashmap->key_size_bytes + hashmap->value_size_bytes;
+}
+
+static uint_large nexus_data_hashmap_slot_offset_get(const HashMap *hashmap, uint_large group_idx, uint8 slot_idx) {
+  uint_large absolute_slot;
+
+  absolute_slot = (group_idx * NEXUS_HASHMAP_GROUP_SLOT_COUNT) + slot_idx;
+
+  return absolute_slot * nexus_data_hashmap_entry_size_get(hashmap);
+}
+
+static uint8 *nexus_data_hashmap_group_control_get(HashMap *hashmap, uint_large group_idx) {
+  return (uint8 *)&hashmap->metadata[group_idx];
+}
+
+static void *nexus_data_hashmap_slot_key_get(HashMap *hashmap, uint_large group_idx, uint8 slot_idx) {
+  uint_large slot_offset;
+
+  slot_offset = nexus_data_hashmap_slot_offset_get(hashmap, group_idx, slot_idx);
+
+  return NEXUS_MEMORY_OFFSET(hashmap->data, slot_offset);
+}
+
+static void *nexus_data_hashmap_slot_value_get(HashMap *hashmap, uint_large group_idx, uint8 slot_idx) {
+  uint_large slot_offset;
+
+  slot_offset = nexus_data_hashmap_slot_offset_get(hashmap, group_idx, slot_idx);
+
+  return NEXUS_MEMORY_OFFSET(hashmap->data, slot_offset + hashmap->key_size_bytes);
+}
+
+static boolean nexus_data_hashmap_control_active(uint8 control) {
+  return control != NEXUS_SWISS_EMPTY && control != NEXUS_SWISS_DELETED;
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL HASHING                                                  */
+/* -------------------------------------------------------------------------- */
+
+static HashMapHash nexus_data_hashmap_hash_get(const HashMap *hashmap, const void *key) {
+  HashMapHash result;
+  uint64      hash;
+
+  hash = (uint64)XXH3_64bits_withSeed(key, hashmap->key_size_bytes, hashmap->hash_seed);
+
+  result.initial_group_idx = (hash >> 7) % hashmap->capacity_groups;
+  result.fingerprint       = (uint8)(hash & 0x7FU);
+
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL PROBING                                                  */
+/* -------------------------------------------------------------------------- */
+
+static HashMapProbe nexus_data_hashmap_probe(HashMap *hashmap, const void *key) {
+  HashMapHash  hash;
+  HashMapProbe result;
+
+  uint_large group_idx;
+  uint8     *group_control;
+
+  uint8 slot_idx;
+  uint8 first_empty_slot;
+
+  boolean found_empty;
+
+  hash = nexus_data_hashmap_hash_get(hashmap, key);
+
+  result.found       = FALSE;
+  result.insertable  = FALSE;
+  result.group_idx   = 0;
+  result.slot_idx    = 0;
+  result.fingerprint = hash.fingerprint;
+
+  group_idx = hash.initial_group_idx;
+
+  for (;;) {
+    group_control = nexus_data_hashmap_group_control_get(hashmap, group_idx);
+
+    /*
+     * First search this group for an existing key.
+     *
+     * Fingerprint matching filters almost all candidates before the full
+     * key comparison is required.
+     */
+    for (slot_idx = 0; slot_idx < NEXUS_HASHMAP_GROUP_SLOT_COUNT; slot_idx++) {
+      if (group_control[slot_idx] != hash.fingerprint) {
+        continue;
+      }
+
+      if (nexus_memory_bytes_compare(nexus_data_hashmap_slot_key_get(hashmap, group_idx, slot_idx), key, hashmap->key_size_bytes) == 0) {
+        result.found     = TRUE;
+        result.group_idx = group_idx;
+        result.slot_idx  = slot_idx;
+
+        return result;
+      }
+    }
+
+    /*
+     * Remember the first tombstone encountered.
+     *
+     * We cannot terminate at a tombstone because the requested key may occur
+     * farther along the probe sequence.
+     */
+    if (result.insertable == FALSE) {
+      for (slot_idx = 0; slot_idx < NEXUS_HASHMAP_GROUP_SLOT_COUNT; slot_idx++) {
+        if (group_control[slot_idx] == NEXUS_SWISS_DELETED) {
+          result.insertable = TRUE;
+          result.group_idx  = group_idx;
+          result.slot_idx   = slot_idx;
+
+          break;
+        }
+      }
+    }
+
+    /*
+     * An EMPTY slot terminates the probe sequence.
+     *
+     * If no earlier tombstone was found, use the first empty slot as the
+     * insertion target.
+     */
+    found_empty      = FALSE;
+    first_empty_slot = 0;
+
+    for (slot_idx = 0; slot_idx < NEXUS_HASHMAP_GROUP_SLOT_COUNT; slot_idx++) {
+      if (group_control[slot_idx] == NEXUS_SWISS_EMPTY) {
+        first_empty_slot = slot_idx;
+        found_empty      = TRUE;
+
+        break;
+      }
+    }
+
+    if (found_empty == TRUE) {
+      if (result.insertable == FALSE) {
+        result.insertable = TRUE;
+        result.group_idx  = group_idx;
+        result.slot_idx   = first_empty_slot;
+      }
+
+      return result;
+    }
+
+    group_idx = (group_idx + 1) % hashmap->capacity_groups;
+
+    if (group_idx == hash.initial_group_idx) {
+      return result;
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL WRITING                                                  */
+/* -------------------------------------------------------------------------- */
+
+static void nexus_data_hashmap_existing_value_write(HashMap *hashmap, const HashMapProbe *probe, const void *value) {
+  nexus_memory_bytes_copy(nexus_data_hashmap_slot_value_get(hashmap, probe->group_idx, probe->slot_idx), value, hashmap->value_size_bytes);
+}
+
+static void nexus_data_hashmap_new_entry_write(HashMap *hashmap, const HashMapProbe *probe, const void *key, const void *value) {
+  uint8 *group_control;
+  uint8  previous_control;
+
+  NEXUS_ASSERT_DEBUG(probe->found == FALSE);
+  NEXUS_ASSERT_DEBUG(probe->insertable == TRUE);
+
+  group_control = nexus_data_hashmap_group_control_get(hashmap, probe->group_idx);
+
+  previous_control = group_control[probe->slot_idx];
+
+  NEXUS_ASSERT_DEBUG(previous_control == NEXUS_SWISS_EMPTY || previous_control == NEXUS_SWISS_DELETED);
+
+  if (previous_control == NEXUS_SWISS_DELETED) {
+    NEXUS_ASSERT_DEBUG(hashmap->deleted_count > 0);
+    hashmap->deleted_count--;
+  }
+
+  nexus_memory_bytes_copy(nexus_data_hashmap_slot_key_get(hashmap, probe->group_idx, probe->slot_idx), key, hashmap->key_size_bytes);
+  nexus_memory_bytes_copy(nexus_data_hashmap_slot_value_get(hashmap, probe->group_idx, probe->slot_idx), value, hashmap->value_size_bytes);
+
+  group_control[probe->slot_idx] = probe->fingerprint;
+
+  hashmap->element_count++;
+}
+
+static void nexus_data_hashmap_write_without_resize(HashMap *hashmap, const void *key, const void *value) {
+  HashMapProbe probe;
+
+  probe = nexus_data_hashmap_probe(hashmap, key);
+
+  if (probe.found == TRUE) {
+    nexus_data_hashmap_existing_value_write(hashmap, &probe, value);
+    return;
+  }
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(probe.insertable == TRUE, "Hashmap has no available insertion slot.");
+
+  if (probe.insertable == FALSE) {
+    return;
+  }
+
+  nexus_data_hashmap_new_entry_write(hashmap, &probe, key, value);
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL ITERATION                                                */
+/* -------------------------------------------------------------------------- */
+
+static boolean nexus_data_hashmap_active_entry_next(HashMap *hashmap, uint_large *group_idx, uint8 *slot_idx, void **out_key, void **out_value) {
+  uint8 *group_control;
+  uint8  current_slot;
+
+  NEXUS_ASSERT_DEBUG(hashmap != NULL);
+  NEXUS_ASSERT_DEBUG(group_idx != NULL);
+  NEXUS_ASSERT_DEBUG(slot_idx != NULL);
+
+  while (*group_idx < hashmap->capacity_groups) {
+    group_control = nexus_data_hashmap_group_control_get(hashmap, *group_idx);
+
+    while (*slot_idx < NEXUS_HASHMAP_GROUP_SLOT_COUNT) {
+      current_slot = *slot_idx;
+
+      (*slot_idx)++;
+
+      if (nexus_data_hashmap_control_active(group_control[current_slot]) == FALSE) {
+        continue;
+      }
+
+      if (out_key != NULL) {
+        *out_key = nexus_data_hashmap_slot_key_get(hashmap, *group_idx, current_slot);
+      }
+
+      if (out_value != NULL) {
+        *out_value = nexus_data_hashmap_slot_value_get(hashmap, *group_idx, current_slot);
+      }
+
+      return TRUE;
+    }
+
+    (*group_idx)++;
+    *slot_idx = 0;
+  }
+
+  return FALSE;
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL STORAGE                                                  */
+/* -------------------------------------------------------------------------- */
+
+static boolean nexus_data_hashmap_storage_create(HashMap *hashmap, uint_large capacity_groups) {
+  uint_large entry_size;
+  uint_large slot_count;
+  uint_large data_size;
+  uint_large metadata_size;
+
+  NEXUS_ASSERT_DEBUG(hashmap != NULL);
+  NEXUS_ASSERT_DEBUG(capacity_groups > 0);
+
+  entry_size = nexus_data_hashmap_entry_size_get(hashmap);
+  slot_count = capacity_groups * NEXUS_HASHMAP_GROUP_SLOT_COUNT;
+
+  data_size = slot_count * entry_size;
+
+  metadata_size = capacity_groups * NEXUS_SIZEOF(uint64);
+  hashmap->data = (byte *)malloc(data_size);
+
+  if (hashmap->data == NULL) {
+    return FALSE;
+  }
+
+  hashmap->metadata = (uint64 *)malloc(metadata_size);
+
+  if (hashmap->metadata == NULL) {
+    free(hashmap->data);
+
+    hashmap->data = NULL;
+
+    return FALSE;
+  }
+
+  nexus_memory_bytes_set(hashmap->metadata, NEXUS_SWISS_EMPTY, metadata_size);
+
+  hashmap->capacity_groups = capacity_groups;
+  hashmap->element_count   = 0;
+  hashmap->deleted_count   = 0;
+
+  return TRUE;
+}
+
+static boolean nexus_data_hashmap_resize(HashMap *hashmap, uint_large new_capacity_groups) {
+  HashMap new_hashmap;
+
+  uint_large group_idx;
+  uint8      slot_idx;
+
+  void *key;
+  void *value;
+
+  boolean allocation_succeeded;
+
+  NEXUS_ASSERT_DEBUG(hashmap != NULL);
+  NEXUS_ASSERT_DEBUG(new_capacity_groups > hashmap->capacity_groups);
+
+  new_hashmap.data             = NULL;
+  new_hashmap.metadata         = NULL;
+  new_hashmap.capacity_groups  = 0;
+  new_hashmap.element_count    = 0;
+  new_hashmap.deleted_count    = 0;
+  new_hashmap.key_size_bytes   = hashmap->key_size_bytes;
+  new_hashmap.value_size_bytes = hashmap->value_size_bytes;
+  new_hashmap.hash_seed        = hashmap->hash_seed;
+
+  allocation_succeeded = nexus_data_hashmap_storage_create(&new_hashmap, new_capacity_groups);
+
+  if (allocation_succeeded == FALSE) {
+    return FALSE;
+  }
+
+  group_idx = 0;
+  slot_idx  = 0;
+
+  while (nexus_data_hashmap_active_entry_next(hashmap, &group_idx, &slot_idx, &key, &value) == TRUE) {
+    nexus_data_hashmap_write_without_resize(&new_hashmap, key, value);
+  }
+
+  NEXUS_ASSERT_DEBUG(new_hashmap.element_count == hashmap->element_count);
+  NEXUS_ASSERT_DEBUG(new_hashmap.deleted_count == 0);
+
+  free(hashmap->data);
+  free(hashmap->metadata);
+
+  hashmap->data            = new_hashmap.data;
+  hashmap->metadata        = new_hashmap.metadata;
+  hashmap->capacity_groups = new_hashmap.capacity_groups;
+  hashmap->element_count   = new_hashmap.element_count;
+  hashmap->deleted_count   = 0;
+
+  return TRUE;
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP INTERNAL COLLECTION                                               */
+/* -------------------------------------------------------------------------- */
+
+static void nexus_data_hashmap_collect(HashMap *hashmap, boolean collect_keys, boolean collect_values, void **out_keys_buffer,
+                                       void **out_values_buffer, uint_large *out_count) {
+  byte *keys_buffer;
+  byte *values_buffer;
+
+  uint_large key_write_offset;
+  uint_large value_write_offset;
+
+  uint_large group_idx;
+  uint8      slot_idx;
+
+  void *key;
+  void *value;
+
+  NEXUS_ASSERT_DEBUG(hashmap != NULL);
+  NEXUS_ASSERT_DEBUG(out_count != NULL);
+
+  if (collect_keys == TRUE) {
+    NEXUS_ASSERT_DEBUG(out_keys_buffer != NULL);
+    *out_keys_buffer = NULL;
+  }
+
+  if (collect_values == TRUE) {
+    NEXUS_ASSERT_DEBUG(out_values_buffer != NULL);
+    *out_values_buffer = NULL;
+  }
+
+  *out_count = hashmap->element_count;
+
+  if (hashmap->element_count == 0) {
+    return;
+  }
+
+  keys_buffer   = NULL;
+  values_buffer = NULL;
+
+  if (collect_keys == TRUE) {
+    keys_buffer = (byte *)malloc(hashmap->element_count * hashmap->key_size_bytes);
+
+    if (keys_buffer == NULL) {
+      *out_count = 0;
+      return;
+    }
+  }
+
+  if (collect_values == TRUE) {
+    values_buffer = (byte *)malloc(hashmap->element_count * hashmap->value_size_bytes);
+
+    if (values_buffer == NULL) {
+      if (keys_buffer != NULL) {
+        free(keys_buffer);
+      }
+
+      *out_count = 0;
+      return;
+    }
+  }
+
+  key_write_offset   = 0;
+  value_write_offset = 0;
+
+  group_idx = 0;
+  slot_idx  = 0;
+
+  while (nexus_data_hashmap_active_entry_next(hashmap, &group_idx, &slot_idx, &key, &value) == TRUE) {
+    if (collect_keys == TRUE) {
+      nexus_memory_bytes_copy(NEXUS_MEMORY_OFFSET(keys_buffer, key_write_offset), key, hashmap->key_size_bytes);
+      key_write_offset += hashmap->key_size_bytes;
+    }
+
+    if (collect_values == TRUE) {
+      nexus_memory_bytes_copy(NEXUS_MEMORY_OFFSET(values_buffer, value_write_offset), value, hashmap->value_size_bytes);
+      value_write_offset += hashmap->value_size_bytes;
+    }
+  }
+
+  if (collect_keys == TRUE) {
+    *out_keys_buffer = keys_buffer;
+  }
+
+  if (collect_values == TRUE) {
+    *out_values_buffer = values_buffer;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP PUBLIC API                                                        */
+/* -------------------------------------------------------------------------- */
+
+NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large value_size_bytes, uint_large initial_capacity_groups,
+                                        uint64 hash_seed) {
+  HashMap *hashmap;
+  boolean  storage_created;
+
+  NEXUS_ASSERT_DEBUG(key_size_bytes > 0);
+  NEXUS_ASSERT_DEBUG(value_size_bytes > 0);
+  NEXUS_ASSERT_DEBUG(initial_capacity_groups > 0);
+
+  hashmap = (HashMap *)malloc(NEXUS_SIZEOF(*hashmap));
+
+  if (hashmap == NULL) {
+    return NULL;
+  }
+
+  hashmap->data             = NULL;
+  hashmap->metadata         = NULL;
+  hashmap->capacity_groups  = 0;
+  hashmap->element_count    = 0;
+  hashmap->deleted_count    = 0;
+  hashmap->key_size_bytes   = key_size_bytes;
+  hashmap->value_size_bytes = value_size_bytes;
+  hashmap->hash_seed        = hash_seed;
+
+  storage_created = nexus_data_hashmap_storage_create(hashmap, initial_capacity_groups);
+
+  if (storage_created == FALSE) {
+    free(hashmap);
+
+    return NULL;
+  }
+
+  return (NexusHashMap *)hashmap;
+}
+
+void nexus_data_hashmap_destroy(NexusHashMap *hashmap_handle) {
+  HashMap *hashmap;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  NEXUS_FREE_IF_NOT_NULL(hashmap->data);
+  NEXUS_FREE_IF_NOT_NULL(hashmap->metadata);
+
+  free(hashmap);
+}
+
+void nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const void *value) {
+  HashMap *hashmap;
+  boolean  resize_succeeded;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+  NEXUS_ASSERT_DEBUG(key != NULL);
+  NEXUS_ASSERT_DEBUG(value != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  if (hashmap->element_count + hashmap->deleted_count >= hashmap->capacity_groups * NEXUS_HASHMAP_GROUP_LOAD_LIMIT) {
+    resize_succeeded = nexus_data_hashmap_resize(hashmap, hashmap->capacity_groups * 2);
+
+    NEXUS_ASSERT_MESSAGE_DEBUG(resize_succeeded == TRUE, "Failed to resize hashmap.");
+
+    if (resize_succeeded == FALSE) {
+      return;
+    }
+  }
+
+  nexus_data_hashmap_write_without_resize(hashmap, key, value);
+}
+
+void nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void **out_value) {
+  HashMap     *hashmap;
+  HashMapProbe probe;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+  NEXUS_ASSERT_DEBUG(key != NULL);
+  NEXUS_ASSERT_DEBUG(out_value != NULL);
+  NEXUS_ASSERT_DEBUG(*out_value != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  probe = nexus_data_hashmap_probe(hashmap, key);
+
+  if (probe.found == FALSE) {
+    return;
+  }
+
+  nexus_memory_bytes_copy(*out_value, nexus_data_hashmap_slot_value_get(hashmap, probe.group_idx, probe.slot_idx), hashmap->value_size_bytes);
+}
+
+boolean nexus_data_hashmap_delete(NexusHashMap *hashmap_handle, const void *key) {
+  HashMap     *hashmap;
+  HashMapProbe probe;
+  uint8       *group_control;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+  NEXUS_ASSERT_DEBUG(key != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  probe = nexus_data_hashmap_probe(hashmap, key);
+
+  if (probe.found == FALSE) {
+    return FALSE;
+  }
+
+  group_control = nexus_data_hashmap_group_control_get(hashmap, probe.group_idx);
+
+  group_control[probe.slot_idx] = NEXUS_SWISS_DELETED;
+
+  NEXUS_ASSERT_DEBUG(hashmap->element_count > 0);
+
+  hashmap->element_count--;
+  hashmap->deleted_count++;
+
+  return TRUE;
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP ENUMERATION                                                       */
+/* -------------------------------------------------------------------------- */
+
+void nexus_data_hashmap_enumerator_init(NexusHashMapEnumerator *enumerator) {
+  NEXUS_ASSERT_DEBUG(enumerator != NULL);
+
+  enumerator->group_idx = 0;
+  enumerator->slot_idx  = 0;
+}
+
+boolean nexus_data_hashmap_enumerator_next(NexusHashMapEnumerator *enumerator, void **out_key, void **out_value) {
+  HashMap *hashmap;
+
+  NEXUS_ASSERT_DEBUG(enumerator != NULL);
+  NEXUS_ASSERT_DEBUG(enumerator->hashmap != NULL);
+  NEXUS_ASSERT_DEBUG(out_key != NULL);
+  NEXUS_ASSERT_DEBUG(out_value != NULL);
+
+  hashmap = (HashMap *)enumerator->hashmap;
+
+  return nexus_data_hashmap_active_entry_next(hashmap, &enumerator->group_idx, &enumerator->slot_idx, out_key, out_value);
+}
+
+/* -------------------------------------------------------------------------- */
+/* HASH MAP COLLECTION                                                        */
+/* -------------------------------------------------------------------------- */
+
+void nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count) {
+  HashMap *hashmap;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+  NEXUS_ASSERT_DEBUG(out_keys_buffer != NULL);
+  NEXUS_ASSERT_DEBUG(out_count != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  nexus_data_hashmap_collect(hashmap, TRUE, FALSE, out_keys_buffer, NULL, out_count);
+}
+
+void nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count) {
+  HashMap *hashmap;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+  NEXUS_ASSERT_DEBUG(out_values_buffer != NULL);
+  NEXUS_ASSERT_DEBUG(out_count != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  nexus_data_hashmap_collect(hashmap, FALSE, TRUE, NULL, out_values_buffer, out_count);
+}
+
+void nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer, uint_large *out_count) {
+  HashMap *hashmap;
+
+  NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
+  NEXUS_ASSERT_DEBUG(out_keys_buffer != NULL);
+  NEXUS_ASSERT_DEBUG(out_values_buffer != NULL);
+  NEXUS_ASSERT_DEBUG(out_count != NULL);
+
+  hashmap = (HashMap *)hashmap_handle;
+
+  nexus_data_hashmap_collect(hashmap, TRUE, TRUE, out_keys_buffer, out_values_buffer, out_count);
+}

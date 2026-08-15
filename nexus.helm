@@ -16,5 +16,5 @@ entity nexus {
         LDFLAGS = [ "-lnexus", "-lm" ]
     }
 
-    deps = [ "//external/stb:stb" ]
+    deps = [ "//external/stb:stb", "//external/xxhash:xxhash" ]
 }

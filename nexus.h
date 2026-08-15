@@ -1321,6 +1321,10 @@ static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLIN
 }
 #endif
 
+static int nexus_memory_bytes_compare(const void *bytes_a, const void *bytes_b, uint_large size) { /* NOLINT(clang-diagnostic-unused-function) */
+  return memcmp(bytes_a, bytes_b, size);
+}
+
 #define NEXUS_FREE_IF_NOT_NULL(ptr)                                                                                                                  \
   if ((ptr) != NULL) {                                                                                                                               \
     free((ptr));                                                                                                                                     \
@@ -3725,3 +3729,29 @@ NEXUS_KV_TYPE_TABLE(X_KV_DECL)
 #define X_HEAP_DECL(key_type, suffix) NEXUS_DATA_HEAP_MIN_INDEX_DECLARE(key_type, suffix);
 NEXUS_HEAP_TYPE_TABLE(X_HEAP_DECL)
 #undef X_HEAP_DECL
+
+typedef void NexusHashMap;
+
+/*
+HashMap implementation is Swiss-Table based: https://pratikpandey.substack.com/p/swisstables-high-performance-hashmaps
+*/
+
+extern NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large value_size_bytes, uint_large initial_capacity_groups,
+                                               uint64 hash_seed);
+extern void          nexus_data_hashmap_destroy(NexusHashMap *hashmap);
+
+extern void    nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const void *value);
+extern void    nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void **out_value);
+extern void    nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count);
+extern void    nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count);
+extern void    nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer, uint_large *out_count);
+extern boolean nexus_data_hashmap_delete(NexusHashMap *hashmap_handle, const void *key);
+
+typedef struct {
+  NexusHashMap *hashmap;
+  uint_large    group_idx;
+  uint8         slot_idx;
+} NexusHashMapEnumerator;
+
+extern void    nexus_data_hashmap_enumerator_init(NexusHashMapEnumerator *enumerator);
+extern boolean nexus_data_hashmap_enumerator_next(NexusHashMapEnumerator *enumerator, void **out_key, void **out_value);
