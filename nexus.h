@@ -2579,6 +2579,33 @@ nexus_process_id_get returns the current process identifier.
 extern uint32 nexus_process_id_get(void);
 
 /* ---------------------------------------------------------------------------- */
+/* THREADS                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+nexus_threads_sleep suspends the calling thread for at least duration.
+
+A duration of zero or less returns immediately.
+
+The operating system scheduler may cause the actual suspension to exceed the
+requested duration. Sub-millisecond sleeps are best-effort and are limited by
+the timer facilities and hardware supported by the host operating system.
+*/
+extern void nexus_threads_sleep(NexusDuration duration);
+
+/*
+nexus_threads_spin_wait actively waits for at least duration without voluntarily
+yielding the calling thread to the operating system scheduler.
+
+A duration of zero or less returns immediately.
+
+This function consumes CPU time for the entire wait and should only be used for
+very short latency-sensitive waits. The actual wait duration is limited by the
+precision and overhead of the platform monotonic clock.
+*/
+extern void nexus_threads_spin_wait(NexusDuration duration);
+
+/* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
 /* ---------------------------------------------------------------------------- */
 
