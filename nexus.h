@@ -1484,6 +1484,9 @@ extern NError nexus_stdio_stderr_flush(void);
 /*
 nexus_stdio_stdin_read_line reads one line from stdin into buffer.
 
+The trailing line terminator is not included in the resulting string.
+On CRLF input, both '\r' and '\n' are removed.
+
 When stdin reaches end-of-file before a line is read, sets out_reached_eof to TRUE.
 Interrupted reads are retried so callers can observe external cancellation first.
 */

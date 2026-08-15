@@ -29,7 +29,7 @@ NError nexus_stdio_stdout_write(const byte *bytes, uint_large byte_length, uint_
   write_cursor    = bytes;
   remaining_bytes = byte_length;
   while (remaining_bytes > 0) {
-    chunk_length = (size_t)((remaining_bytes > (uint_large)((size_t)-1)) ? (size_t)-1 : remaining_bytes);
+    chunk_length  = (size_t)((remaining_bytes > (uint_large)((size_t)-1)) ? (size_t)-1 : remaining_bytes);
     written_count = fwrite(write_cursor, 1, chunk_length, stdout);
     if (written_count != chunk_length) {
       if (ferror(stdout) != 0) {
@@ -103,7 +103,7 @@ NError nexus_stdio_stderr_write(const byte *bytes, uint_large byte_length, uint_
   write_cursor    = bytes;
   remaining_bytes = byte_length;
   while (remaining_bytes > 0) {
-    chunk_length = (size_t)((remaining_bytes > (uint_large)((size_t)-1)) ? (size_t)-1 : remaining_bytes);
+    chunk_length  = (size_t)((remaining_bytes > (uint_large)((size_t)-1)) ? (size_t)-1 : remaining_bytes);
     written_count = fwrite(write_cursor, 1, chunk_length, stderr);
     if (written_count != chunk_length) {
       if (ferror(stderr) != 0) {
@@ -169,6 +169,8 @@ boolean nexus_stdio_stdin_is_terminal(void) {
 }
 
 NError nexus_stdio_stdin_read_line(char *buffer, uint_large buffer_max_length, boolean *out_reached_eof) {
+  uint_large length;
+
   NEXUS_ASSERT_DEBUG(buffer != NULL);
   NEXUS_ASSERT_DEBUG(out_reached_eof != NULL);
   NEXUS_ASSERT_MESSAGE_DEBUG(buffer_max_length > 0, "stdin read buffer must be non-zero");
@@ -178,6 +180,18 @@ NError nexus_stdio_stdin_read_line(char *buffer, uint_large buffer_max_length, b
   while (TRUE) {
     if (fgets(buffer, (int)buffer_max_length, stdin) != NULL) {
       *out_reached_eof = FALSE;
+
+      length = nexus_strings_string_length(buffer);
+
+      if (length > 0 && buffer[length - 1] == '\n') {
+        buffer[length - 1] = '\0';
+        length--;
+      }
+
+      if (length > 0 && buffer[length - 1] == '\r') {
+        buffer[length - 1] = '\0';
+      }
+
       return NEXUS_ERROR_NONE;
     }
 
