@@ -468,6 +468,7 @@ tied to the named constants instead of raw numeric literals.
 #define NEXUS_ERROR_IO                       NEXUS_ERROR_MAKE('N', 'X', 7)
 #define NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE NEXUS_ERROR_MAKE('N', 'X', 8)
 #define NEXUS_ERROR_CAPACITY                 NEXUS_ERROR_MAKE('N', 'X', 9)
+#define NEXUS_ERROR_INTERRUPTED              NEXUS_ERROR_MAKE('N', 'X', 10)
 
 /*
 NexusErrorMessageFormatter returns a human-readable description for a facility-specific
@@ -1488,7 +1489,9 @@ The trailing line terminator is not included in the resulting string.
 On CRLF input, both '\r' and '\n' are removed.
 
 When stdin reaches end-of-file before a line is read, sets out_reached_eof to TRUE.
-Interrupted reads are retried so callers can observe external cancellation first.
+
+Returns NEXUS_ERROR_INTERRUPTED when the blocking read is interrupted by a
+captured process signal.
 */
 extern NError nexus_stdio_stdin_read_line(char *buffer, uint_large buffer_max_length, boolean *out_reached_eof);
 
@@ -2491,6 +2494,51 @@ extern NError nexus_environment_variable_get(const char *name, char *buffer, uin
 nexus_environment_variable_unset removes an environment variable from the current process.
 */
 extern NError nexus_environment_variable_unset(const char *name);
+
+/* ---------------------------------------------------------------------------- */
+/* SIGNALS                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusSignal identifies process-level signals that Nexus can capture portably.
+*/
+typedef enum NexusSignal {
+  NEXUS_SIGNAL_INTERRUPT = 0,
+  NEXUS_SIGNAL_TERMINATE,
+
+  NEXUS_SIGNAL_COUNT
+} NexusSignal;
+
+/*
+nexus_signals_capture installs Nexus handling for signal.
+
+The signal is recorded when received and may subsequently be queried using
+nexus_signals_received_get or consumed using nexus_signals_received_exchange.
+
+Signal handlers perform no application cleanup themselves.
+*/
+extern NError nexus_signals_capture(NexusSignal signal);
+
+/*
+nexus_signals_release restores the platform's default handling for signal.
+*/
+extern NError nexus_signals_release(NexusSignal signal);
+
+/*
+nexus_signals_received_get returns TRUE when signal has been received since
+capture or the most recent clear/exchange.
+*/
+extern boolean nexus_signals_received_get(NexusSignal signal);
+
+/*
+nexus_signals_received_exchange returns the current received state and clears it.
+*/
+extern boolean nexus_signals_received_exchange(NexusSignal signal);
+
+/*
+nexus_signals_received_clear clears the received state for signal.
+*/
+extern void nexus_signals_received_clear(NexusSignal signal);
 
 /* ---------------------------------------------------------------------------- */
 /* PROCESS                                                                      */

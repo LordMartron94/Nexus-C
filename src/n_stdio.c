@@ -197,7 +197,7 @@ NError nexus_stdio_stdin_read_line(char *buffer, uint_large buffer_max_length, b
 
 #if defined(EINTR)
     if (errno == EINTR) {
-      continue;
+      return NEXUS_ERROR_INTERRUPTED;
     }
 #endif
 

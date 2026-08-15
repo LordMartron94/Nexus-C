@@ -23,5 +23,5 @@ void nexus_version_format(NexusSemanticVersion version, char *out_buffer, uint_l
   uint16 patch;
 
   nexus_version_unpack(version, &variant, &major, &minor, &patch);
-  nexus_strings_string_format_with_truncation(out_buffer, out_buffer_size, "%u.%u.%u.%u", variant, major, minor, patch);
+  nexus_strings_string_format_with_truncation(out_buffer, out_buffer_size, "%u.%u.%u (variant=%u)", major, minor, patch, variant);
 }

@@ -32,6 +32,8 @@ static const char *n_internal_nexus_error_message_for_code(uint16 code) {
     return "unsupported architecture for operation";
   case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_CAPACITY):
     return "capacity exhausted";
+  case NEXUS_ERROR_LOCAL_ID(NEXUS_ERROR_INTERRUPTED):
+    return "interrupted process";
   default:
     return "unknown Nexus error";
   }
@@ -183,9 +185,9 @@ void nexus_errors_message_formatter_unregister(char facility_byte_1, char facili
 }
 
 uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix) {
-  const char                  *message;
-  boolean                      use_prefix;
-  NexusErrorMessageFormatter  *formatter;
+  const char                 *message;
+  boolean                     use_prefix;
+  NexusErrorMessageFormatter *formatter;
 
   NEXUS_ASSERT_DEBUG(buffer != NULL);
   NEXUS_ASSERT_DEBUG(buffer_max_length > 0);
