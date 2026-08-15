@@ -1170,6 +1170,7 @@ instead of a clean libc exit. status_code is currently unused but reserved for f
 extern void exit_crash(uint32 status_code);
 
 #define NEXUS_SIZEOF(type)                             ((size_t)sizeof(type))
+#define NEXUS_OFFSETOF(type, field)                    ((size_t)offsetof(type, field))
 #define NEXUS_ARRAY_SIZE_BYTES(array)                  ((size_t)sizeof(array))
 #define NEXUS_ARRAY_SIZE_ELEMENTS(array)               ((uint64)sizeof(array) / (uint64)sizeof((array)[0]))
 #define NEXUS_MEMORY_OFFSET(base_pointer, byte_offset) ((void *)((unsigned char *)(base_pointer) + (size_t)(byte_offset)))
