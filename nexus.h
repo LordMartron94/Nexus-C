@@ -3561,6 +3561,237 @@ Contract: waitgroup must not be NULL (asserted).
 */
 extern void nexus_threads_waitgroup_destroy(NexusThreadsWaitGroup *waitgroup);
 
+/*
+Atomic values are concrete, allocation-free synchronization primitives.
+
+All atomic operations use sequentially consistent ordering.
+
+Atomic values may be embedded directly inside structures and may be initialized
+to zero using ordinary C aggregate initialization:
+
+  NexusAtomicUint32 counter = { 0 };
+  NexusAtomicBoolean ready  = { 0 };
+  NexusAtomicPointer state  = { 0 };
+
+Once an atomic value becomes accessible concurrently, its storage must only be
+accessed through the atomic API.
+
+Atomic values must be naturally aligned. Nexus enforces the alignment required
+by the fixed-width atomic types.
+
+The atomic API itself never allocates memory and never uses NexusMutex.
+On platforms where the compiler cannot emit a lock-free operation for a given
+width, the compiler/runtime may provide an implementation fallback.
+*/
+
+#if defined(_MSC_VER)
+#  define NEXUS_THREADS_ATOMIC_ALIGN(bytes) __declspec(align(bytes))
+#elif defined(__GNUC__) || defined(__clang__)
+#  define NEXUS_THREADS_ATOMIC_ALIGN(bytes) __attribute__((aligned(bytes)))
+#else
+#  define NEXUS_THREADS_ATOMIC_ALIGN(bytes)
+#endif
+
+typedef struct NEXUS_THREADS_ATOMIC_ALIGN(4) NexusAtomicInt32 {
+  volatile int32 storage;
+} NexusAtomicInt32;
+
+typedef struct NEXUS_THREADS_ATOMIC_ALIGN(4) NexusAtomicUint32 {
+  volatile uint32 storage;
+} NexusAtomicUint32;
+
+typedef struct NEXUS_THREADS_ATOMIC_ALIGN(8) NexusAtomicInt64 {
+  volatile int64 storage;
+} NexusAtomicInt64;
+
+typedef struct NEXUS_THREADS_ATOMIC_ALIGN(8) NexusAtomicUint64 {
+  volatile uint64 storage;
+} NexusAtomicUint64;
+
+#if NEXUS_ARCHITECTURE_BITS == 64
+typedef NexusAtomicInt64  NexusAtomicIntLarge;
+typedef NexusAtomicUint64 NexusAtomicUintLarge;
+#else
+typedef NexusAtomicInt32  NexusAtomicIntLarge;
+typedef NexusAtomicUint32 NexusAtomicUintLarge;
+#endif
+
+/*
+NexusAtomicBoolean internally uses a 32-bit word rather than boolean's byte-sized
+representation because 32-bit atomic operations are universally better supported
+by the target platforms.
+*/
+typedef struct NEXUS_THREADS_ATOMIC_ALIGN(4) NexusAtomicBoolean {
+  volatile uint32 storage;
+} NexusAtomicBoolean;
+
+typedef struct NexusAtomicPointer {
+  void *volatile storage;
+} NexusAtomicPointer;
+
+#undef NEXUS_THREADS_ATOMIC_ALIGN
+
+/*
+nexus_threads_atomic_int32_load atomically returns the current value.
+*/
+extern int32 nexus_threads_atomic_int32_load(NexusAtomicInt32 *atomic);
+
+/*
+nexus_threads_atomic_int32_store atomically replaces the current value.
+*/
+extern void nexus_threads_atomic_int32_store(NexusAtomicInt32 *atomic, int32 value);
+
+/*
+nexus_threads_atomic_int32_swap atomically replaces the current value and returns
+the previous value.
+*/
+extern int32 nexus_threads_atomic_int32_swap(NexusAtomicInt32 *atomic, int32 value);
+
+/*
+nexus_threads_atomic_int32_compare_exchange replaces old_value with new_value
+only when the current value equals old_value.
+
+Returns TRUE if the replacement occurred, otherwise FALSE.
+*/
+extern boolean nexus_threads_atomic_int32_compare_exchange(NexusAtomicInt32 *atomic, int32 old_value, int32 new_value);
+
+/*
+nexus_threads_atomic_int32_add atomically adds delta and returns the new value.
+
+Arithmetic wraps modulo 2^32.
+*/
+extern int32 nexus_threads_atomic_int32_add(NexusAtomicInt32 *atomic, int32 delta);
+
+/*
+nexus_threads_atomic_uint32_load atomically returns the current value.
+*/
+extern uint32 nexus_threads_atomic_uint32_load(NexusAtomicUint32 *atomic);
+
+/*
+nexus_threads_atomic_uint32_store atomically replaces the current value.
+*/
+extern void nexus_threads_atomic_uint32_store(NexusAtomicUint32 *atomic, uint32 value);
+
+/*
+nexus_threads_atomic_uint32_swap atomically replaces the current value and returns
+the previous value.
+*/
+extern uint32 nexus_threads_atomic_uint32_swap(NexusAtomicUint32 *atomic, uint32 value);
+
+/*
+nexus_threads_atomic_uint32_compare_exchange replaces old_value with new_value
+only when the current value equals old_value.
+
+Returns TRUE if the replacement occurred, otherwise FALSE.
+*/
+extern boolean nexus_threads_atomic_uint32_compare_exchange(NexusAtomicUint32 *atomic, uint32 old_value, uint32 new_value);
+
+/*
+nexus_threads_atomic_uint32_add atomically adds delta and returns the new value.
+
+Arithmetic wraps modulo 2^32.
+*/
+extern uint32 nexus_threads_atomic_uint32_add(NexusAtomicUint32 *atomic, uint32 delta);
+
+/*
+nexus_threads_atomic_int64_load atomically returns the current value.
+*/
+extern int64 nexus_threads_atomic_int64_load(NexusAtomicInt64 *atomic);
+
+/*
+nexus_threads_atomic_int64_store atomically replaces the current value.
+*/
+extern void nexus_threads_atomic_int64_store(NexusAtomicInt64 *atomic, int64 value);
+
+/*
+nexus_threads_atomic_int64_swap atomically replaces the current value and returns
+the previous value.
+*/
+extern int64 nexus_threads_atomic_int64_swap(NexusAtomicInt64 *atomic, int64 value);
+
+/*
+nexus_threads_atomic_int64_compare_exchange replaces old_value with new_value
+only when the current value equals old_value.
+
+Returns TRUE if the replacement occurred, otherwise FALSE.
+*/
+extern boolean nexus_threads_atomic_int64_compare_exchange(NexusAtomicInt64 *atomic, int64 old_value, int64 new_value);
+
+/*
+nexus_threads_atomic_int64_add atomically adds delta and returns the new value.
+
+Arithmetic wraps modulo 2^64.
+*/
+extern int64 nexus_threads_atomic_int64_add(NexusAtomicInt64 *atomic, int64 delta);
+
+/*
+nexus_threads_atomic_uint64_load atomically returns the current value.
+*/
+extern uint64 nexus_threads_atomic_uint64_load(NexusAtomicUint64 *atomic);
+
+/*
+nexus_threads_atomic_uint64_store atomically replaces the current value.
+*/
+extern void nexus_threads_atomic_uint64_store(NexusAtomicUint64 *atomic, uint64 value);
+
+/*
+nexus_threads_atomic_uint64_swap atomically replaces the current value and returns
+the previous value.
+*/
+extern uint64 nexus_threads_atomic_uint64_swap(NexusAtomicUint64 *atomic, uint64 value);
+
+/*
+nexus_threads_atomic_uint64_compare_exchange replaces old_value with new_value
+only when the current value equals old_value.
+
+Returns TRUE if the replacement occurred, otherwise FALSE.
+*/
+extern boolean nexus_threads_atomic_uint64_compare_exchange(NexusAtomicUint64 *atomic, uint64 old_value, uint64 new_value);
+
+/*
+nexus_threads_atomic_uint64_add atomically adds delta and returns the new value.
+
+Arithmetic wraps modulo 2^64.
+*/
+extern uint64 nexus_threads_atomic_uint64_add(NexusAtomicUint64 *atomic, uint64 delta);
+
+/*
+Architecture-sized integer atomics.
+
+These map directly to the corresponding fixed-width atomic implementation:
+32 bits on 32-bit targets and 64 bits on 64-bit targets.
+*/
+extern int_large nexus_threads_atomic_int_large_load(NexusAtomicIntLarge *atomic);
+extern void      nexus_threads_atomic_int_large_store(NexusAtomicIntLarge *atomic, int_large value);
+extern int_large nexus_threads_atomic_int_large_swap(NexusAtomicIntLarge *atomic, int_large value);
+extern boolean   nexus_threads_atomic_int_large_compare_exchange(NexusAtomicIntLarge *atomic, int_large old_value, int_large new_value);
+extern int_large nexus_threads_atomic_int_large_add(NexusAtomicIntLarge *atomic, int_large delta);
+
+extern uint_large nexus_threads_atomic_uint_large_load(NexusAtomicUintLarge *atomic);
+extern void       nexus_threads_atomic_uint_large_store(NexusAtomicUintLarge *atomic, uint_large value);
+extern uint_large nexus_threads_atomic_uint_large_swap(NexusAtomicUintLarge *atomic, uint_large value);
+extern boolean    nexus_threads_atomic_uint_large_compare_exchange(NexusAtomicUintLarge *atomic, uint_large old_value, uint_large new_value);
+extern uint_large nexus_threads_atomic_uint_large_add(NexusAtomicUintLarge *atomic, uint_large delta);
+
+/*
+Boolean atomics normalize stored values to TRUE or FALSE.
+*/
+extern boolean nexus_threads_atomic_boolean_load(NexusAtomicBoolean *atomic);
+extern void    nexus_threads_atomic_boolean_store(NexusAtomicBoolean *atomic, boolean value);
+extern boolean nexus_threads_atomic_boolean_swap(NexusAtomicBoolean *atomic, boolean value);
+extern boolean nexus_threads_atomic_boolean_compare_exchange(NexusAtomicBoolean *atomic, boolean old_value, boolean new_value);
+
+/*
+Pointer atomics operate on the pointer value itself.
+
+They do not provide synchronization for mutation of the pointed-to object and do
+not provide object lifetime management.
+*/
+extern void   *nexus_threads_atomic_pointer_load(NexusAtomicPointer *atomic);
+extern void    nexus_threads_atomic_pointer_store(NexusAtomicPointer *atomic, void *value);
+extern void   *nexus_threads_atomic_pointer_swap(NexusAtomicPointer *atomic, void *value);
+extern boolean nexus_threads_atomic_pointer_compare_exchange(NexusAtomicPointer *atomic, void *old_value, void *new_value);
+
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
 /* ---------------------------------------------------------------------------- */

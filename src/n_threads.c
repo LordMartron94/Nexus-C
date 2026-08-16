@@ -390,6 +390,695 @@ void nexus_threads_spin_wait(NexusDuration duration) {
 }
 
 /* ---------------------------------------------------------------------------- */
+/* ATOMICS                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+Atomic operations deliberately use sequentially consistent ordering.
+
+This gives the API Go-like semantics and avoids exposing memory ordering concerns
+through the general-purpose Nexus threading API.
+*/
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+
+typedef char n_threads_atomic_long_size_check[(NEXUS_SIZEOF(LONG) == NEXUS_SIZEOF(uint32)) ? 1 : -1];
+typedef char n_threads_atomic_long_long_size_check[(NEXUS_SIZEOF(LONGLONG) == NEXUS_SIZEOF(uint64)) ? 1 : -1];
+
+static LONG n_threads_atomic_uint32_to_windows_long(uint32 value) {
+  LONG result;
+
+  nexus_memory_bytes_copy(&result, &value, NEXUS_SIZEOF(result));
+
+  return result;
+}
+
+static uint32 n_threads_atomic_uint32_from_windows_long(LONG value) {
+  uint32 result;
+
+  nexus_memory_bytes_copy(&result, &value, NEXUS_SIZEOF(result));
+
+  return result;
+}
+
+static LONGLONG n_threads_atomic_uint64_to_windows_long_long(uint64 value) {
+  LONGLONG result;
+
+  nexus_memory_bytes_copy(&result, &value, NEXUS_SIZEOF(result));
+
+  return result;
+}
+
+static uint64 n_threads_atomic_uint64_from_windows_long_long(LONGLONG value) {
+  uint64 result;
+
+  nexus_memory_bytes_copy(&result, &value, NEXUS_SIZEOF(result));
+
+  return result;
+}
+
+#endif
+
+static uint32 n_threads_atomic_uint32_load_raw(volatile uint32 *value) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return n_threads_atomic_uint32_from_windows_long(InterlockedCompareExchange((volatile LONG *)value, 0, 0));
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_load_n(value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "32-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static void n_threads_atomic_uint32_store_raw(volatile uint32 *value, uint32 new_value) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  InterlockedExchange((volatile LONG *)value, n_threads_atomic_uint32_to_windows_long(new_value));
+
+#elif defined(__GNUC__) || defined(__clang__)
+  __atomic_store_n(value, new_value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "32-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static uint32 n_threads_atomic_uint32_swap_raw(volatile uint32 *value, uint32 new_value) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return n_threads_atomic_uint32_from_windows_long(InterlockedExchange((volatile LONG *)value, n_threads_atomic_uint32_to_windows_long(new_value)));
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_exchange_n(value, new_value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "32-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static boolean n_threads_atomic_uint32_compare_exchange_raw(volatile uint32 *value, uint32 old_value, /* NOLINT(readability-non-const-parameter) */
+                                                            uint32 new_value) {
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  LONG result;
+
+  result = InterlockedCompareExchange((volatile LONG *)value, n_threads_atomic_uint32_to_windows_long(new_value),
+                                      n_threads_atomic_uint32_to_windows_long(old_value));
+
+  return n_threads_atomic_uint32_from_windows_long(result) == old_value ? TRUE : FALSE;
+
+#elif defined(__GNUC__) || defined(__clang__)
+  uint32 expected;
+
+  expected = old_value;
+
+  return __atomic_compare_exchange_n(value, &expected, new_value, FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? TRUE : FALSE;
+
+#else
+#  error "32-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static uint32 n_threads_atomic_uint32_add_raw(volatile uint32 *value, uint32 delta) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  uint32 old_value;
+
+  old_value =
+      n_threads_atomic_uint32_from_windows_long(InterlockedExchangeAdd((volatile LONG *)value, n_threads_atomic_uint32_to_windows_long(delta)));
+
+  return old_value + delta;
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_add_fetch(value, delta, __ATOMIC_SEQ_CST);
+
+#else
+#  error "32-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static uint64 n_threads_atomic_uint64_load_raw(volatile uint64 *value) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return n_threads_atomic_uint64_from_windows_long_long(InterlockedCompareExchange64((volatile LONGLONG *)value, 0, 0));
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_load_n(value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "64-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static void n_threads_atomic_uint64_store_raw(volatile uint64 *value, uint64 new_value) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  InterlockedExchange64((volatile LONGLONG *)value, n_threads_atomic_uint64_to_windows_long_long(new_value));
+
+#elif defined(__GNUC__) || defined(__clang__)
+  __atomic_store_n(value, new_value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "64-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static uint64 n_threads_atomic_uint64_swap_raw(volatile uint64 *value, uint64 new_value) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return n_threads_atomic_uint64_from_windows_long_long(
+      InterlockedExchange64((volatile LONGLONG *)value, n_threads_atomic_uint64_to_windows_long_long(new_value)));
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_exchange_n(value, new_value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "64-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static boolean n_threads_atomic_uint64_compare_exchange_raw(volatile uint64 *value, uint64 old_value, /* NOLINT(readability-non-const-parameter) */
+                                                            uint64 new_value) {
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  LONGLONG result;
+
+  result = InterlockedCompareExchange64((volatile LONGLONG *)value, n_threads_atomic_uint64_to_windows_long_long(new_value),
+                                        n_threads_atomic_uint64_to_windows_long_long(old_value));
+
+  return n_threads_atomic_uint64_from_windows_long_long(result) == old_value ? TRUE : FALSE;
+
+#elif defined(__GNUC__) || defined(__clang__)
+  uint64 expected;
+
+  expected = old_value;
+
+  return __atomic_compare_exchange_n(value, &expected, new_value, FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? TRUE : FALSE;
+
+#else
+#  error "64-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static uint64 n_threads_atomic_uint64_add_raw(volatile uint64 *value, uint64 delta) { /* NOLINT(readability-non-const-parameter) */
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  uint64 old_value;
+
+  old_value = n_threads_atomic_uint64_from_windows_long_long(
+      InterlockedExchangeAdd64((volatile LONGLONG *)value, n_threads_atomic_uint64_to_windows_long_long(delta)));
+
+  return old_value + delta;
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_add_fetch(value, delta, __ATOMIC_SEQ_CST);
+
+#else
+#  error "64-bit atomic operations are not implemented for this compiler"
+#endif
+}
+
+static uint32 n_threads_atomic_int32_to_bits(int32 value) {
+  uint32 bits;
+
+  nexus_memory_bytes_copy(&bits, &value, NEXUS_SIZEOF(bits));
+
+  return bits;
+}
+
+static int32 n_threads_atomic_int32_from_bits(uint32 bits) {
+  int32 value;
+
+  nexus_memory_bytes_copy(&value, &bits, NEXUS_SIZEOF(value));
+
+  return value;
+}
+
+static uint64 n_threads_atomic_int64_to_bits(int64 value) {
+  uint64 bits;
+
+  nexus_memory_bytes_copy(&bits, &value, NEXUS_SIZEOF(bits));
+
+  return bits;
+}
+
+static int64 n_threads_atomic_int64_from_bits(uint64 bits) {
+  int64 value;
+
+  nexus_memory_bytes_copy(&value, &bits, NEXUS_SIZEOF(value));
+
+  return value;
+}
+
+/* ---------------------------------------------------------------------------- */
+/* INT32 ATOMIC                                                                 */
+/* ---------------------------------------------------------------------------- */
+
+int32 nexus_threads_atomic_int32_load(NexusAtomicInt32 *atomic) {
+  uint32 bits;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int32 load on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  bits = n_threads_atomic_uint32_load_raw((volatile uint32 *)&atomic->storage);
+
+  return n_threads_atomic_int32_from_bits(bits);
+}
+
+void nexus_threads_atomic_int32_store(NexusAtomicInt32 *atomic, int32 value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int32 store on NULL atomic");
+
+  if (atomic == NULL) {
+    return;
+  }
+
+  n_threads_atomic_uint32_store_raw((volatile uint32 *)&atomic->storage, n_threads_atomic_int32_to_bits(value));
+}
+
+int32 nexus_threads_atomic_int32_swap(NexusAtomicInt32 *atomic, int32 value) {
+  uint32 bits;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int32 swap on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  bits = n_threads_atomic_uint32_swap_raw((volatile uint32 *)&atomic->storage, n_threads_atomic_int32_to_bits(value));
+
+  return n_threads_atomic_int32_from_bits(bits);
+}
+
+boolean nexus_threads_atomic_int32_compare_exchange(NexusAtomicInt32 *atomic, int32 old_value, int32 new_value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int32 compare_exchange on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  return n_threads_atomic_uint32_compare_exchange_raw((volatile uint32 *)&atomic->storage, n_threads_atomic_int32_to_bits(old_value),
+                                                      n_threads_atomic_int32_to_bits(new_value));
+}
+
+int32 nexus_threads_atomic_int32_add(NexusAtomicInt32 *atomic, int32 delta) {
+  uint32 bits;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int32 add on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  bits = n_threads_atomic_uint32_add_raw((volatile uint32 *)&atomic->storage, n_threads_atomic_int32_to_bits(delta));
+
+  return n_threads_atomic_int32_from_bits(bits);
+}
+
+/* ---------------------------------------------------------------------------- */
+/* UINT32 ATOMIC                                                                */
+/* ---------------------------------------------------------------------------- */
+
+uint32 nexus_threads_atomic_uint32_load(NexusAtomicUint32 *atomic) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint32 load on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  return n_threads_atomic_uint32_load_raw(&atomic->storage);
+}
+
+void nexus_threads_atomic_uint32_store(NexusAtomicUint32 *atomic, uint32 value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint32 store on NULL atomic");
+
+  if (atomic == NULL) {
+    return;
+  }
+
+  n_threads_atomic_uint32_store_raw(&atomic->storage, value);
+}
+
+uint32 nexus_threads_atomic_uint32_swap(NexusAtomicUint32 *atomic, uint32 value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint32 swap on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  return n_threads_atomic_uint32_swap_raw(&atomic->storage, value);
+}
+
+boolean nexus_threads_atomic_uint32_compare_exchange(NexusAtomicUint32 *atomic, uint32 old_value, uint32 new_value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint32 compare_exchange on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  return n_threads_atomic_uint32_compare_exchange_raw(&atomic->storage, old_value, new_value);
+}
+
+uint32 nexus_threads_atomic_uint32_add(NexusAtomicUint32 *atomic, uint32 delta) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint32 add on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  return n_threads_atomic_uint32_add_raw(&atomic->storage, delta);
+}
+
+/* ---------------------------------------------------------------------------- */
+/* INT64 ATOMIC                                                                 */
+/* ---------------------------------------------------------------------------- */
+
+int64 nexus_threads_atomic_int64_load(NexusAtomicInt64 *atomic) {
+  uint64 bits;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int64 load on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  bits = n_threads_atomic_uint64_load_raw((volatile uint64 *)&atomic->storage);
+
+  return n_threads_atomic_int64_from_bits(bits);
+}
+
+void nexus_threads_atomic_int64_store(NexusAtomicInt64 *atomic, int64 value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int64 store on NULL atomic");
+
+  if (atomic == NULL) {
+    return;
+  }
+
+  n_threads_atomic_uint64_store_raw((volatile uint64 *)&atomic->storage, n_threads_atomic_int64_to_bits(value));
+}
+
+int64 nexus_threads_atomic_int64_swap(NexusAtomicInt64 *atomic, int64 value) {
+  uint64 bits;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int64 swap on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  bits = n_threads_atomic_uint64_swap_raw((volatile uint64 *)&atomic->storage, n_threads_atomic_int64_to_bits(value));
+
+  return n_threads_atomic_int64_from_bits(bits);
+}
+
+boolean nexus_threads_atomic_int64_compare_exchange(NexusAtomicInt64 *atomic, int64 old_value, int64 new_value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int64 compare_exchange on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  return n_threads_atomic_uint64_compare_exchange_raw((volatile uint64 *)&atomic->storage, n_threads_atomic_int64_to_bits(old_value),
+                                                      n_threads_atomic_int64_to_bits(new_value));
+}
+
+int64 nexus_threads_atomic_int64_add(NexusAtomicInt64 *atomic, int64 delta) {
+  uint64 bits;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic int64 add on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  bits = n_threads_atomic_uint64_add_raw((volatile uint64 *)&atomic->storage, n_threads_atomic_int64_to_bits(delta));
+
+  return n_threads_atomic_int64_from_bits(bits);
+}
+
+/* ---------------------------------------------------------------------------- */
+/* UINT64 ATOMIC                                                                */
+/* ---------------------------------------------------------------------------- */
+
+uint64 nexus_threads_atomic_uint64_load(NexusAtomicUint64 *atomic) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint64 load on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  return n_threads_atomic_uint64_load_raw(&atomic->storage);
+}
+
+void nexus_threads_atomic_uint64_store(NexusAtomicUint64 *atomic, uint64 value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint64 store on NULL atomic");
+
+  if (atomic == NULL) {
+    return;
+  }
+
+  n_threads_atomic_uint64_store_raw(&atomic->storage, value);
+}
+
+uint64 nexus_threads_atomic_uint64_swap(NexusAtomicUint64 *atomic, uint64 value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint64 swap on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  return n_threads_atomic_uint64_swap_raw(&atomic->storage, value);
+}
+
+boolean nexus_threads_atomic_uint64_compare_exchange(NexusAtomicUint64 *atomic, uint64 old_value, uint64 new_value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint64 compare_exchange on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  return n_threads_atomic_uint64_compare_exchange_raw(&atomic->storage, old_value, new_value);
+}
+
+uint64 nexus_threads_atomic_uint64_add(NexusAtomicUint64 *atomic, uint64 delta) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic uint64 add on NULL atomic");
+
+  if (atomic == NULL) {
+    return 0;
+  }
+
+  return n_threads_atomic_uint64_add_raw(&atomic->storage, delta);
+}
+
+/* ---------------------------------------------------------------------------- */
+/* ARCHITECTURE-WIDTH ATOMICS                                                   */
+/* ---------------------------------------------------------------------------- */
+
+int_large nexus_threads_atomic_int_large_load(NexusAtomicIntLarge *atomic) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_int64_load(atomic);
+#else
+  return nexus_threads_atomic_int32_load(atomic);
+#endif
+}
+
+void nexus_threads_atomic_int_large_store(NexusAtomicIntLarge *atomic, int_large value) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  nexus_threads_atomic_int64_store(atomic, value);
+#else
+  nexus_threads_atomic_int32_store(atomic, value);
+#endif
+}
+
+int_large nexus_threads_atomic_int_large_swap(NexusAtomicIntLarge *atomic, int_large value) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_int64_swap(atomic, value);
+#else
+  return nexus_threads_atomic_int32_swap(atomic, value);
+#endif
+}
+
+boolean nexus_threads_atomic_int_large_compare_exchange(NexusAtomicIntLarge *atomic, int_large old_value, int_large new_value) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_int64_compare_exchange(atomic, old_value, new_value);
+#else
+  return nexus_threads_atomic_int32_compare_exchange(atomic, old_value, new_value);
+#endif
+}
+
+int_large nexus_threads_atomic_int_large_add(NexusAtomicIntLarge *atomic, int_large delta) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_int64_add(atomic, delta);
+#else
+  return nexus_threads_atomic_int32_add(atomic, delta);
+#endif
+}
+
+uint_large nexus_threads_atomic_uint_large_load(NexusAtomicUintLarge *atomic) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_uint64_load(atomic);
+#else
+  return nexus_threads_atomic_uint32_load(atomic);
+#endif
+}
+
+void nexus_threads_atomic_uint_large_store(NexusAtomicUintLarge *atomic, uint_large value) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  nexus_threads_atomic_uint64_store(atomic, value);
+#else
+  nexus_threads_atomic_uint32_store(atomic, value);
+#endif
+}
+
+uint_large nexus_threads_atomic_uint_large_swap(NexusAtomicUintLarge *atomic, uint_large value) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_uint64_swap(atomic, value);
+#else
+  return nexus_threads_atomic_uint32_swap(atomic, value);
+#endif
+}
+
+boolean nexus_threads_atomic_uint_large_compare_exchange(NexusAtomicUintLarge *atomic, uint_large old_value, uint_large new_value) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_uint64_compare_exchange(atomic, old_value, new_value);
+#else
+  return nexus_threads_atomic_uint32_compare_exchange(atomic, old_value, new_value);
+#endif
+}
+
+uint_large nexus_threads_atomic_uint_large_add(NexusAtomicUintLarge *atomic, uint_large delta) {
+#if NEXUS_ARCHITECTURE_BITS == 64
+  return nexus_threads_atomic_uint64_add(atomic, delta);
+#else
+  return nexus_threads_atomic_uint32_add(atomic, delta);
+#endif
+}
+
+/* ---------------------------------------------------------------------------- */
+/* BOOLEAN ATOMIC                                                               */
+/* ---------------------------------------------------------------------------- */
+
+boolean nexus_threads_atomic_boolean_load(NexusAtomicBoolean *atomic) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic boolean load on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  return n_threads_atomic_uint32_load_raw(&atomic->storage) != 0 ? TRUE : FALSE;
+}
+
+void nexus_threads_atomic_boolean_store(NexusAtomicBoolean *atomic, boolean value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic boolean store on NULL atomic");
+
+  if (atomic == NULL) {
+    return;
+  }
+
+  n_threads_atomic_uint32_store_raw(&atomic->storage, value ? 1U : 0U);
+}
+
+boolean nexus_threads_atomic_boolean_swap(NexusAtomicBoolean *atomic, boolean value) {
+  uint32 old_value;
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic boolean swap on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  old_value = n_threads_atomic_uint32_swap_raw(&atomic->storage, value ? 1U : 0U);
+
+  return old_value != 0 ? TRUE : FALSE;
+}
+
+boolean nexus_threads_atomic_boolean_compare_exchange(NexusAtomicBoolean *atomic, boolean old_value, boolean new_value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic boolean compare_exchange on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+  return n_threads_atomic_uint32_compare_exchange_raw(&atomic->storage, old_value ? 1U : 0U, new_value ? 1U : 0U);
+}
+
+/* ---------------------------------------------------------------------------- */
+/* POINTER ATOMIC                                                               */
+/* ---------------------------------------------------------------------------- */
+
+void *nexus_threads_atomic_pointer_load(NexusAtomicPointer *atomic) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic pointer load on NULL atomic");
+
+  if (atomic == NULL) {
+    return NULL;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return InterlockedCompareExchangePointer((PVOID volatile *)&atomic->storage, NULL, NULL);
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_load_n(&atomic->storage, __ATOMIC_SEQ_CST);
+
+#else
+#  error "Pointer atomic operations are not implemented for this compiler"
+#endif
+}
+
+void nexus_threads_atomic_pointer_store(NexusAtomicPointer *atomic, void *value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic pointer store on NULL atomic");
+
+  if (atomic == NULL) {
+    return;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  InterlockedExchangePointer((PVOID volatile *)&atomic->storage, value);
+
+#elif defined(__GNUC__) || defined(__clang__)
+  __atomic_store_n(&atomic->storage, value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "Pointer atomic operations are not implemented for this compiler"
+#endif
+}
+
+void *nexus_threads_atomic_pointer_swap(NexusAtomicPointer *atomic, void *value) {
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic pointer swap on NULL atomic");
+
+  if (atomic == NULL) {
+    return NULL;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return InterlockedExchangePointer((PVOID volatile *)&atomic->storage, value);
+
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_exchange_n(&atomic->storage, value, __ATOMIC_SEQ_CST);
+
+#else
+#  error "Pointer atomic operations are not implemented for this compiler"
+#endif
+}
+
+boolean nexus_threads_atomic_pointer_compare_exchange(NexusAtomicPointer *atomic, void *old_value, void *new_value) {
+#if defined(__GNUC__) || defined(__clang__)
+  void *expected;
+#endif
+
+  NEXUS_ASSERT_MESSAGE(atomic != NULL, "Attempted atomic pointer compare_exchange on NULL atomic");
+
+  if (atomic == NULL) {
+    return FALSE;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  return InterlockedCompareExchangePointer((PVOID volatile *)&atomic->storage, new_value, old_value) == old_value ? TRUE : FALSE;
+
+#elif defined(__GNUC__) || defined(__clang__)
+  expected = old_value;
+
+  return __atomic_compare_exchange_n(&atomic->storage, &expected, new_value, FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? TRUE : FALSE;
+
+#else
+#  error "Pointer atomic operations are not implemented for this compiler"
+#endif
+}
+
+/* ---------------------------------------------------------------------------- */
 /* MUTEX                                                                        */
 /* ---------------------------------------------------------------------------- */
 
