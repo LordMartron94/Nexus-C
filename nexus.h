@@ -353,6 +353,10 @@ nexus_uint128_bytes_big_endian_read deserializes 16 big-endian bytes into value.
 */
 extern uint128 nexus_uint128_bytes_big_endian_read(const byte in_bytes[16]);
 
+static boolean nexus_uint128_compare(uint128 value_a, uint128 value_b) { /* NOLINT */
+  return value_a.hi == value_b.hi && value_a.lo == value_b.lo;
+}
+
 /* PRECISIONS */
 
 #ifndef NEXUS_FLOAT_DOUBLE_PRECISION
@@ -4332,6 +4336,44 @@ static uint64 nexus_bits_hash_mix_u64(uint64 hash, uint64 value) /* NOLINT */ {
 }
 
 /* ---------------------------------------------------------------------------- */
+/* ENTROPY                                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusEntropyFillFunc writes byte_count bytes of entropy into out_bytes.
+
+user_data is provider-defined opaque state.
+
+The function must write exactly byte_count bytes when returning
+NEXUS_ERROR_NONE.
+
+The quality and security properties of the produced bytes are determined by the
+provider. Callers which require cryptographically secure entropy must use a
+provider documented to provide cryptographically secure random bytes.
+
+Returns NEXUS_ERROR_NONE on success or an appropriate error when entropy could
+not be produced.
+*/
+typedef NError NexusEntropyFillFunc(void *user_data, byte *out_bytes, uint64 byte_count);
+
+/*
+nexus_entropy_system_fill writes cryptographically secure random bytes supplied
+by the operating system.
+
+This is the default entropy source for Nexus functionality which requires
+unpredictable random data, including UUIDv4 and the random portions of UUIDv7.
+
+user_data is ignored and may be NULL.
+
+Platform implementations use the operating system's native cryptographically
+secure random facility.
+
+Returns NEXUS_ERROR_NONE on success.
+Returns NEXUS_ERROR_IO when the operating system entropy source fails.
+*/
+extern NError nexus_entropy_system_fill(void *user_data, byte *out_bytes, uint64 byte_count);
+
+/* ---------------------------------------------------------------------------- */
 /* HASHING                                                                      */
 /* ---------------------------------------------------------------------------- */
 
@@ -4339,17 +4381,6 @@ static uint64 nexus_bits_hash_mix_u64(uint64 hash, uint64 value) /* NOLINT */ {
 NexusHash is reserved for future general-purpose hash containers.
 */
 typedef struct NexusHash NexusHash;
-
-/*
-NexusHashEntropyFillCallback writes byte_count random bytes into out_bytes.
-
-Callers supply any RNG backend (for example Blaze entropy) without Nexus taking a
-dependency on that backend. The callback must write exactly byte_count bytes.
-user_data is the opaque pointer passed to nexus_hash_zobrist_table_fill.
-out_bytes must not be NULL when byte_count is greater than zero.
-*/
-typedef void NexusHashEntropyFillCallback(void *user_data, byte *out_bytes, uint64 byte_count);
-
 /*
 NexusHashZobristTable holds caller-owned Zobrist keys used for incremental XOR hashing.
 
@@ -4362,24 +4393,46 @@ typedef struct NexusHashZobristTable {
 } NexusHashZobristTable;
 
 /*
-nexus_hash_zobrist_table_fill fills each key in table with an independent random bitstring.
+nexus_hash_zobrist_table_fill fills each key in table with an independent
+provider-generated bitstring.
 
-Each uint64 key is assembled little-endian from eight bytes produced by fill.
-table and fill must not be NULL. table->keys must not be NULL when table->key_count is greater
-than zero. key_count may be zero.
+fill determines the entropy/randomness source. Zobrist hashing itself does not
+require cryptographically secure randomness; deterministic PRNG providers are
+normally preferable when reproducibility is required.
+
+Returns NEXUS_ERROR_NONE on success or propagates an error returned by fill.
 */
-static void nexus_hash_zobrist_table_fill(NexusHashZobristTable *table, NexusHashEntropyFillCallback *fill, void *user_data) /* NOLINT */ {
+static NError nexus_hash_zobrist_table_fill(NexusHashZobristTable *table, NexusEntropyFillFunc *fill, void *user_data) /* NOLINT */
+{
+  NError error;
+
   uint64 i;
-  byte   key_bytes[8];
+
+  byte key_bytes[8];
 
   NEXUS_ASSERT_DEBUG(table != NULL);
   NEXUS_ASSERT_DEBUG(fill != NULL);
   NEXUS_ASSERT_DEBUG(table->key_count == 0 || table->keys != NULL);
 
+  if (table == NULL || fill == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  if (table->key_count > 0 && table->keys == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
   for (i = 0; i < table->key_count; i++) {
-    fill(user_data, key_bytes, 8);
+    error = fill(user_data, key_bytes, NEXUS_SIZEOF(key_bytes));
+
+    if (error != NEXUS_ERROR_NONE) {
+      return error;
+    }
+
     table->keys[i] = nexus_bits_uint64_from_bytes_lsb(key_bytes);
   }
+
+  return NEXUS_ERROR_NONE;
 }
 
 /*
@@ -4467,11 +4520,154 @@ data must not be NULL when byte_count is greater than zero. byte_count may be ze
 */
 extern uint64 nexus_hash_fnv1a64(const void *data, uint64 byte_count);
 
+#define NEXUS_HASH_SHA1_DIGEST_SIZE 20
+#define NEXUS_HASH_SHA1_BLOCK_SIZE  64
+
+/*
+NexusHashSHA1Context stores the state of an incremental SHA-1 computation.
+
+SHA-1 is provided primarily for compatibility with algorithms and protocols
+which specifically require SHA-1, including UUID version 5.
+
+SHA-1 should not be selected for new cryptographic integrity or signature
+schemes where collision resistance is required.
+*/
+typedef struct NexusHashSHA1Context {
+  uint32 state[5];
+
+  uint64 total_byte_count;
+
+  byte   block[NEXUS_HASH_SHA1_BLOCK_SIZE];
+  uint32 block_byte_count;
+} NexusHashSHA1Context;
+
+/*
+nexus_hash_sha1_begin initializes context for a new SHA-1 computation.
+*/
+extern void nexus_hash_sha1_begin(NexusHashSHA1Context *context);
+
+/*
+nexus_hash_sha1_bytes appends byte_count bytes from data to an incremental SHA-1
+computation.
+
+data may be NULL only when byte_count is zero.
+*/
+extern void nexus_hash_sha1_bytes(NexusHashSHA1Context *context, const void *data, uint64 byte_count);
+
+/*
+nexus_hash_sha1_end finalizes context and writes the 20-byte SHA-1 digest in
+network/big-endian byte order.
+
+The context should be considered finalized after this call and must be passed
+to nexus_hash_sha1_begin before reuse.
+*/
+extern void nexus_hash_sha1_end(NexusHashSHA1Context *context, byte out_digest[NEXUS_HASH_SHA1_DIGEST_SIZE]);
+
+/*
+nexus_hash_sha1 computes SHA-1 over byte_count bytes in one operation.
+
+Equivalent to begin + bytes + end.
+*/
+extern void nexus_hash_sha1(const void *data, uint64 byte_count, byte out_digest[NEXUS_HASH_SHA1_DIGEST_SIZE]);
+
 /* ---------------------------------------------------------------------------- */
-/* IDs                                                                          */
+/* IDENTITY                                                                     */
 /* ---------------------------------------------------------------------------- */
 
-typedef struct NexusUUID NexusUUID;
+#ifndef NEXUS_UUID_STRING_LENGTH
+#  define NEXUS_UUID_STRING_LENGTH      36
+#  define NEXUS_UUID_STRING_BUFFER_SIZE 37
+#endif
+
+/*
+NexusUUID is a 128-bit universally unique identifier.
+
+The numeric representation follows normal uint128 semantics:
+hi contains the most significant 64 bits and lo contains the least significant
+64 bits.
+
+UUID serialization is performed in network / big-endian byte order.
+*/
+typedef uint128 NexusUUID;
+
+/*
+nexus_identity_uuid_string_write writes uuid in canonical UUID form:
+
+xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+Hexadecimal characters are lowercase. out_string must provide at least
+NEXUS_UUID_STRING_BUFFER_SIZE bytes.
+*/
+extern void nexus_identity_uuid_string_write(NexusUUID uuid, char out_string[NEXUS_UUID_STRING_BUFFER_SIZE]);
+
+/*
+nexus_identity_uuid_string_parse parses a canonical UUID string.
+
+Leading and trailing ASCII whitespace is ignored. Both lowercase and uppercase
+hexadecimal characters are accepted.
+
+Returns NEXUS_ERROR_NONE on success or NEXUS_ERROR_INVALID_ARGUMENT when the
+input is malformed.
+*/
+extern NError nexus_identity_uuid_string_parse(const char *string, NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v4_generate generates an RFC 9562 UUID version 4 using the
+operating system entropy source.
+*/
+extern NError nexus_identity_uuid_v4_generate(NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v4_generate_with_entropy generates an RFC 9562 UUID version
+4 using entropy_fill.
+
+The UUID format remains RFC-compliant with any provider supplying appropriate
+random or pseudorandom data; uniqueness and unpredictability depend on the
+quality and state management of that provider.
+*/
+extern NError nexus_identity_uuid_v4_generate_with_entropy(NexusEntropyFillFunc *entropy_fill, void *entropy_user_data, NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v5_generate generates an RFC 9562 UUID version 5 from
+namespace_uuid and the bytes of name.
+
+name is interpreted as a null-terminated byte string. UTF-8 text therefore has
+the same semantics as the corresponding UTF-8 byte sequence.
+*/
+extern NError nexus_identity_uuid_v5_generate(NexusUUID namespace_uuid, const char *name, NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v5_generate_bytes is the binary-safe version of
+nexus_identity_uuid_v5_generate.
+
+This form should be used when the name can contain embedded zero bytes.
+*/
+extern NError nexus_identity_uuid_v5_generate_bytes(NexusUUID namespace_uuid, const void *name, uint_large name_size, NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v7_generate_random generates a random-field UUIDv7 using
+the operating system entropy source.
+*/
+extern NError nexus_identity_uuid_v7_generate_random(NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v7_generate_random_with_entropy is the injectable-entropy
+form of nexus_identity_uuid_v7_generate_random.
+*/
+extern NError nexus_identity_uuid_v7_generate_random_with_entropy(NexusEntropyFillFunc *entropy_fill, void *entropy_user_data, NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v7_generate_monotonic generates a process-monotonic UUIDv7
+using the operating system entropy source for its random suffix.
+*/
+extern NError nexus_identity_uuid_v7_generate_monotonic(NexusUUID *out_uuid);
+
+/*
+nexus_identity_uuid_v7_generate_monotonic_with_entropy is the injectable
+entropy form of nexus_identity_uuid_v7_generate_monotonic.
+*/
+extern NError nexus_identity_uuid_v7_generate_monotonic_with_entropy(NexusEntropyFillFunc *entropy_fill, void *entropy_user_data,
+                                                                     NexusUUID *out_uuid);
 
 /* ---------------------------------------------------------------------------- */
 /* Hardware                                                                     */
