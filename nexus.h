@@ -3305,6 +3305,14 @@ Contract: waitgroup must not be NULL (asserted).
 extern NError nexus_threads_waitgroup_wait(NexusThreadsWaitGroup *waitgroup);
 
 /*
+nexus_threads_waitgroup_try_wait returns TRUE when the waitgroup counter is currently zero.
+
+Unlike nexus_threads_waitgroup_wait, this function never blocks. The result is only a
+snapshot; another thread may add work immediately afterward.
+*/
+extern boolean nexus_threads_waitgroup_try_wait(NexusThreadsWaitGroup *waitgroup);
+
+/*
 nexus_threads_waitgroup_destroy frees all platform resources associated with the waitgroup.
 The waitgroup must not have active waiting threads during destruction.
 

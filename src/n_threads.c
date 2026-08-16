@@ -858,6 +858,37 @@ NError nexus_threads_waitgroup_wait(NexusThreadsWaitGroup *waitgroup) {
   return NEXUS_ERROR_NONE;
 }
 
+boolean nexus_threads_waitgroup_try_wait(NexusThreadsWaitGroup *waitgroup) {
+  boolean ready;
+
+  NEXUS_ASSERT_MESSAGE(waitgroup != NULL, "Attempted waitgroup_try_wait on NULL waitgroup");
+
+  if (waitgroup == NULL) {
+    return FALSE;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  EnterCriticalSection(&waitgroup->cs);
+
+  ready = waitgroup->counter == 0;
+
+  LeaveCriticalSection(&waitgroup->cs);
+
+#elif defined(NEXUS_PLATFORM_POSIX) || defined(NEXUS_PLATFORM_BSD)
+  if (pthread_mutex_lock(&waitgroup->mutex) != 0) {
+    return FALSE;
+  }
+
+  ready = waitgroup->counter == 0;
+
+  pthread_mutex_unlock(&waitgroup->mutex);
+#else
+  ready = FALSE;
+#endif
+
+  return ready;
+}
+
 void nexus_threads_waitgroup_destroy(NexusThreadsWaitGroup *waitgroup) {
   NEXUS_ASSERT_MESSAGE(waitgroup != NULL, "Attempted to destroy NULL waitgroup");
 
