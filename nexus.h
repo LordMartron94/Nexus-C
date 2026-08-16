@@ -862,163 +862,506 @@ extern uint_large nexus_real_round_to_uint_large(f_real value, NexusRealRoundMod
 /* ---------------------------------------------------------------------------- */
 
 /*
-MergeSource / Forge memory debugger (f_mem_debug.c).
+Nexus memory debugging is based on the MergeSource / Forge memory debugger
+(f_mem_debug.c), adapted for Nexus.
 
-NEXUS_MEMORY_DEBUG_ENABLED hijacks malloc, calloc, free, and realloc with tracking wrappers.
-Default: 1. Override before include to disable.
+When NEXUS_MEMORY_DEBUG_ENABLED is non-zero, malloc, calloc, realloc, and free
+are redirected through Nexus debug-memory functions. The debugger tracks live
+allocations, allocation sites, guard regions, aggregate statistics, optional
+freed-memory history, and optional allocation logging.
 
-NEXUS_MEMORY_DEBUG_IMPLEMENTATION is set only in n_debug.c so that translation unit uses libc
-allocators while implementing the wrappers.
+The public allocation interface remains the standard C allocation interface.
+Code using malloc/calloc/realloc/free therefore does not need to know whether
+memory debugging is enabled.
 
-NEXUS_EXIT_CRASH_ENABLED replaces exit() with exit_crash() for debugger-friendly termination.
-Default: 1. Override before include to disable.
+NEXUS_MEMORY_DEBUG_IMPLEMENTATION must only be defined by the translation unit
+implementing the memory debugger. It prevents that translation unit's own libc
+allocation calls from being redirected back into the debugger.
 
-NEXUS_EXIT_CRASH_IMPLEMENTATION is set only in n_debug.c so allocator error paths use libc exit().
+The memory debugger begins in the active state. It can temporarily be suspended
+at runtime through nexus_debug_mem_active and related functions without
+recompiling Nexus.
+
+The debugger supports concurrent allocations when synchronization has been
+configured through nexus_debug_mem_thread_safe_init. nexus_threads_create
+automatically performs this configuration before creating the first Nexus
+secondary thread.
+
+Memory-log callbacks may execute concurrently on different threads. Recursive
+logging caused by allocations made by the callback itself is suppressed on a
+per-thread basis.
 */
 
 #include <stddef.h>
 #include <string.h>
 
+/* ---------------------------------------------------------------------------- */
+/* THREAD-LOCAL STORAGE                                                         */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NEXUS_THREAD_LOCAL declares an object with one independent instance per thread.
+
+Nexus uses compiler-supported TLS extensions when compiling in C89 mode.
+The abstraction is intentionally allocation-free and may therefore be used by
+low-level facilities such as the memory debugger where heap-backed TLS would
+create an allocator dependency cycle.
+
+Static initialization must be sufficient for objects declared through this
+macro. Do not use it for dynamically constructed per-thread resources that
+require explicit destruction.
+*/
+#ifndef NEXUS_THREAD_LOCAL
+#  if defined(_MSC_VER)
+#    define NEXUS_THREAD_LOCAL __declspec(thread)
+#  elif defined(__GNUC__) || defined(__clang__)
+#    define NEXUS_THREAD_LOCAL __thread
+#  elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#    define NEXUS_THREAD_LOCAL _Thread_local
+#  else
+#    error "Nexus requires compiler thread-local storage support"
+#  endif
+#endif
+
+/* ---------------------------------------------------------------------------- */
+/* MEMORY DEBUGGER CONFIGURATION                                                */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NEXUS_MEMORY_DEBUG_ENABLED controls whether C heap allocation calls are routed
+through the Nexus memory debugger.
+
+When enabled:
+- malloc, calloc, realloc, and free are redirected to Nexus wrappers;
+- live allocations are tracked by source location;
+- guard regions are installed around tracked allocations;
+- memory utility functions can validate tracked ranges;
+- allocation statistics and reports are available.
+
+Default: enabled.
+*/
 #ifndef NEXUS_MEMORY_DEBUG_ENABLED
 #  define NEXUS_MEMORY_DEBUG_ENABLED 1
 #endif
 
-#ifndef NEXUS_EXIT_CRASH_ENABLED
-#  define NEXUS_EXIT_CRASH_ENABLED 1
-#endif
+/*
+NEXUS_MEMORY_OVER_ALLOC specifies the total amount of guard storage reserved
+around each tracked allocation.
 
+NEXUS_MEMORY_PRE_PADDING bytes are placed before the user allocation. The
+remaining bytes are placed after it.
+
+NEXUS_MEMORY_OVER_ALLOC must be greater than or equal to
+NEXUS_MEMORY_PRE_PADDING.
+*/
 #ifndef NEXUS_MEMORY_OVER_ALLOC
 #  define NEXUS_MEMORY_OVER_ALLOC 64
 #endif
 
+/*
+NEXUS_MEMORY_PRE_PADDING specifies how many bytes of the debug allocation guard
+region precede the user-visible allocation.
+*/
 #ifndef NEXUS_MEMORY_PRE_PADDING
 #  define NEXUS_MEMORY_PRE_PADDING 16
 #endif
 
+/*
+NEXUS_MEMORY_NULL_ALLOCATION_ERROR causes failed tracked allocations to invoke
+NEXUS_MEMORY_CALL_ON_ERROR after diagnostic information has been emitted.
+
+Define this macro to enable that behavior.
+*/
 #ifndef NEXUS_MEMORY_NULL_ALLOCATION_ERROR
 #  define NEXUS_MEMORY_NULL_ALLOCATION_ERROR
 #endif
 
+/*
+NEXUS_MEMORY_DOUBLE_FREE_CHECK enables retention of recently freed allocation
+metadata so attempts to free the same pointer twice can be diagnosed.
+
+This increases debugger memory usage.
+*/
 #ifndef NEXUS_MEMORY_DOUBLE_FREE_CHECK
 #  define NEXUS_MEMORY_DOUBLE_FREE_CHECK
 #endif
 
+/*
+NEXUS_MEMORY_USE_AFTER_FREE_CHECK retains recently freed allocation storage and
+fills it with a known byte pattern.
+
+Later integrity scans can detect writes made after the allocation was freed.
+
+This substantially increases debugger memory usage because recently freed
+storage must remain resident until displaced from the freed-allocation history.
+*/
 #ifndef NEXUS_MEMORY_USE_AFTER_FREE_CHECK
 #  define NEXUS_MEMORY_USE_AFTER_FREE_CHECK
 #endif
 
+/*
+NEXUS_MEMORY_WARN_ON_REALLOC_NULL enables diagnostics when realloc is called
+with a NULL pointer.
+*/
 #ifndef NEXUS_MEMORY_WARN_ON_REALLOC_NULL
 #  define NEXUS_MEMORY_WARN_ON_REALLOC_NULL
 #endif
 
+/*
+NEXUS_MEMORY_CALL_ON_ERROR specifies the action performed after the debugger
+detects a fatal memory error.
+
+The default terminates through abort(). Applications may override this macro
+before including Nexus when another debugger-break or failure mechanism is
+required.
+*/
 #ifndef NEXUS_MEMORY_CALL_ON_ERROR
 #  define NEXUS_MEMORY_CALL_ON_ERROR abort();
 #endif
 
+/*
+NEXUS_MEMORY_STACK_GUESS_SIZE specifies the approximate stack range used by
+stack-reference diagnostics when the main thread stack has not explicitly been
+registered through nexus_debug_mem_stack_pointer_set.
+*/
 #ifndef NEXUS_MEMORY_STACK_GUESS_SIZE
 #  define NEXUS_MEMORY_STACK_GUESS_SIZE ((size_t)1024 * (size_t)1024)
 #endif
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY DEBUGGER SYNCHRONIZATION                                              */
+/* ---------------------------------------------------------------------------- */
+
 /*
-nexus_debug_mem_thread_safe_init registers lock and unlock callbacks for the memory debugger.
-Call once before any tracked allocation when more than one thread may allocate, free, or query
-memory concurrently. Single-threaded programs may omit this call entirely.
-lock and unlock must return zero on success. mutex is passed through to both callbacks unchanged.
+nexus_debug_mem_thread_safe_init configures synchronization for the process-wide
+memory debugger.
+
+lock and unlock receive mutex unchanged and must return zero on success.
+
+The supplied synchronization primitive must:
+- require no tracked heap allocation to operate;
+- remain valid for the lifetime of the process;
+- be initialized before more than one thread can enter the memory debugger.
+
+The allocator must not depend on a normal heap-backed NexusMutex for its own
+internal synchronization, because constructing or destroying such a mutex would
+itself require the allocator.
+
+nexus_threads_create automatically installs Nexus' allocation-free internal
+memory-debugger lock before creating the first secondary Nexus thread.
+
+The first valid synchronization configuration is intended to remain installed
+for the process lifetime. Replacing allocator synchronization while threads are
+active is unsupported.
+
+Single-threaded applications may omit explicit configuration.
 */
 extern void nexus_debug_mem_thread_safe_init(int (*lock)(void *mutex), int (*unlock)(void *mutex), void *mutex);
 
-/*
-nexus_debug_mem_stack_pointer_set records the lowest address and size of the main thread stack.
-This improves stack-pointer heuristics in nexus_debug_mem_check_stack_reference and related checks.
-If unset, the debugger falls back to NEXUS_MEMORY_STACK_GUESS_SIZE when guessing stack addresses.
-*/
-extern void nexus_debug_mem_stack_pointer_set(void *lowest_stack_pointer, size_t stack_size_in_bytes);
+/* ---------------------------------------------------------------------------- */
+/* MEMORY DEBUGGER RUNTIME STATE                                                */
+/* ---------------------------------------------------------------------------- */
 
 /*
-nexus_debug_mem_active enables or disables the full memory debugger at runtime.
+nexus_debug_mem_active enables or suspends full memory debugging.
 
-When FALSE, malloc/calloc/realloc/free bypass over-allocation, canaries, and the tracking table
-(except free/realloc of blocks that were still tracked from a prior active period), and
-nexus_memory_bytes_copy/set/clear skip allocation queries. When TRUE, full tracking resumes for
-new allocations. Prefer this over rebuilding with NEXUS_MEMORY_DEBUG_ENABLED 0 when the debugger
-must stay available but hot paths need libc cost.
+When active is TRUE:
+- new allocations receive guard regions;
+- new allocations are entered into the tracking table;
+- allocation statistics are updated;
+- memory range validation is performed;
+- memory-debug logging may be emitted.
+
+When active is FALSE:
+- new allocations use the underlying libc allocator directly;
+- memory-debug range checks are bypassed;
+- allocation tracing for new libc allocations is suppressed.
+
+Allocations created while the debugger was active remain recognizable after the
+debugger is suspended. They can therefore still be safely freed or reallocated.
+
+This is intended for temporarily removing debugger overhead from hot paths
+without losing the ability to resume debugging later.
 */
 extern void nexus_debug_mem_active(boolean active);
 
 /*
-nexus_debug_mem_active_get returns whether the full memory debugger is currently active.
+nexus_debug_mem_active_get returns TRUE when full memory debugging is currently
+active and FALSE when it is suspended.
+
+The returned state is synchronized when thread-safe memory debugging has been
+configured.
 */
 extern boolean nexus_debug_mem_active_get(void);
 
 /*
-nexus_debug_mem_active_exchange sets the debugger active flag and returns the previous value.
+nexus_debug_mem_active_exchange changes the active state and returns the
+previous state.
 
-Use to temporarily suspend the full debugger around a hot path without assuming the prior state:
+This is the preferred operation for temporary suspension because it allows the
+caller to restore the exact state that was present before entering a scope.
+
+Example:
+
   previous = nexus_debug_mem_active_exchange(FALSE);
-  ... work ...
+
+  ... performance-sensitive work ...
+
   (void)nexus_debug_mem_active_exchange(previous);
 */
 extern boolean nexus_debug_mem_active_exchange(boolean active);
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY DEBUGGER STACK INFORMATION                                            */
+/* ---------------------------------------------------------------------------- */
+
 /*
-NexusDebugMemLogCallback is invoked for each tracked malloc, calloc, realloc, free, and for
-nexus_memory_bytes_copy / set / clear when logging is enabled. message is fully formatted; file and
-line identify the call site.
+nexus_debug_mem_stack_pointer_set registers the known main-thread stack range.
+
+lowest_stack_pointer identifies the lowest address belonging to the stack and
+stack_size_in_bytes specifies the complete registered range.
+
+The information is used by:
+- nexus_debug_mem_query_is_allocated;
+- nexus_debug_mem_check_stack_reference;
+- heap/reference diagnostics which distinguish stack addresses from heap
+  addresses.
+
+If no stack range is registered, stack-reference diagnostics fall back to
+NEXUS_MEMORY_STACK_GUESS_SIZE and heuristic distance checks.
+
+This API currently describes the main thread stack rather than maintaining a
+registry of every thread stack.
+*/
+extern void nexus_debug_mem_stack_pointer_set(void *lowest_stack_pointer, size_t stack_size_in_bytes);
+
+/* ---------------------------------------------------------------------------- */
+/* MEMORY DEBUGGER LOGGING                                                      */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NexusDebugMemLogCallback receives memory-debug trace messages.
+
+user_data is the opaque value supplied through
+nexus_debug_mem_log_callback_set.
+
+message contains the fully formatted memory operation description.
+
+file and line identify the source location responsible for the operation.
+
+Callbacks can be generated by:
+- tracked malloc;
+- tracked calloc;
+- tracked realloc;
+- tracked free;
+- nexus_memory_bytes_copy;
+- nexus_memory_bytes_set;
+- nexus_memory_bytes_clear.
+
+Callbacks are never invoked while the allocator metadata lock is held.
+
+Consequently:
+- callbacks may themselves perform memory allocations;
+- allocator-to-logger lock-order deadlocks are avoided;
+- callbacks from separate threads may execute concurrently.
+
+Allocations performed recursively by the callback on the same thread do not
+generate further memory-log callbacks. Recursive suppression is thread-local,
+so one thread emitting a callback does not suppress logging on other threads.
+
+Implementations of this callback must therefore be thread-safe if allocation
+can occur from multiple threads.
 */
 typedef void NexusDebugMemLogCallback(void *user_data, const char *message, const char *file, uint32 line);
 
 /*
-nexus_debug_mem_log_callback_set registers a callback for allocation tracing.
-Pass NULL callback to disable. The callback is not invoked re-entrantly (nested allocations during
-logging are not logged). Thread-safe when initialized via nexus_debug_mem_thread_safe_init.
+nexus_debug_mem_log_callback_set installs or removes the memory-debug logging
+callback.
+
+Pass a non-NULL callback to enable logging.
+
+Pass NULL as callback to disable logging. user_data is ignored when callback is
+NULL.
+
+Callback registration state is synchronized with the memory debugger.
+
+A callback invocation that already obtained the previous callback and user_data
+may finish after another thread replaces or disables the callback. Therefore,
+the lifetime of callback user_data must extend until all threads capable of
+performing memory-debug operations have been quiesced or joined.
+
+The callback is invoked outside the memory-debugger metadata lock.
 */
 extern void nexus_debug_mem_log_callback_set(NexusDebugMemLogCallback *callback, void *user_data);
 
 /*
-nexus_debug_mem_log_callback_installed_get returns TRUE when a memory log callback is registered.
+nexus_debug_mem_log_callback_installed_get returns TRUE when a memory-log
+callback is currently registered.
+
+The returned registration state is synchronized when thread-safe memory
+debugging has been configured.
 */
 extern boolean nexus_debug_mem_log_callback_installed_get(void);
 
+/* ---------------------------------------------------------------------------- */
+/* TRACKED ALLOCATION OPERATIONS                                                */
+/* ---------------------------------------------------------------------------- */
+
 /*
-nexus_debug_mem_malloc replaces malloc when NEXUS_MEMORY_DEBUG_ENABLED is set.
-Allocates size bytes plus guard padding, records file and line, and returns the user pointer.
-Returns NULL on failure. When NEXUS_MEMORY_NULL_ALLOCATION_ERROR is defined, failure triggers
-NEXUS_MEMORY_CALL_ON_ERROR.
+nexus_debug_mem_malloc implements the debug-memory path for malloc.
+
+size specifies the number of user-visible bytes requested.
+
+file and line identify the source allocation site.
+
+When full debugging is active, the function:
+- validates the requested size;
+- allocates user storage plus debug guard regions;
+- initializes guard regions;
+- initializes user storage with the debugger initialization pattern;
+- records the allocation and source site;
+- updates allocation statistics;
+- optionally emits a memory-log callback.
+
+Integer overflow while calculating the backing allocation size is treated as
+allocation failure.
+
+Returns the user-visible pointer on success or NULL on failure.
+
+When NEXUS_MEMORY_NULL_ALLOCATION_ERROR is enabled, allocation failure also
+invokes NEXUS_MEMORY_CALL_ON_ERROR.
 */
 extern void *nexus_debug_mem_malloc(size_t size, char *file, uint32 line);
 
 /*
-nexus_debug_mem_calloc replaces calloc when NEXUS_MEMORY_DEBUG_ENABLED is set.
-Allocates num * size zero-filled bytes with guard padding and records file and line.
-Returns NULL when num * size is zero or on allocation failure.
+nexus_debug_mem_calloc implements the debug-memory path for calloc.
+
+num specifies the number of elements and size specifies the size of each
+element.
+
+The multiplication num * size is checked for size_t overflow before allocating.
+
+When full debugging is active, the resulting user allocation is zero-filled,
+guarded, tracked, and included in debugger statistics.
+
+Returns the user-visible pointer on success or NULL for a zero-sized request or
+allocation failure.
 */
 extern void *nexus_debug_mem_calloc(size_t num, size_t size, char *file, uint32 line);
 
 /*
-nexus_debug_mem_realloc replaces realloc when NEXUS_MEMORY_DEBUG_ENABLED is set.
-Resizes a previously tracked block or allocates afresh when pointer is NULL.
-Returns NULL on failure or when size is zero (after freeing a non-NULL pointer).
-Unrecognized pointers are reported and may fall through to libc realloc.
+nexus_debug_mem_realloc implements the debug-memory path for realloc.
+
+pointer may refer to:
+- a currently tracked allocation;
+- NULL;
+- an allocation created while full memory debugging was suspended.
+
+When pointer is NULL, the operation follows the debugger's malloc path.
+
+For a tracked allocation, the function preserves up to min(old_size, new_size)
+bytes, rebuilds guard regions, updates tracking metadata, and preserves debugger
+consistency as one synchronized operation.
+
+When the debugger is suspended, previously tracked allocations remain
+recognizable and can be transitioned safely to ordinary libc-backed storage.
+
+Allocation-size arithmetic is checked for overflow.
+
+Returns the replacement pointer on success or NULL on failure.
 */
 extern void *nexus_debug_mem_realloc(void *pointer, size_t size, char *file, uint32 line);
 
 /*
-nexus_debug_mem_free replaces free when NEXUS_MEMORY_DEBUG_ENABLED is set.
-Validates guard bytes, removes the block from tracking, and releases backing storage.
-Detects double free, interior free, and suspected stack frees when the corresponding
-NEXUS_MEMORY_*_CHECK options are enabled. file and line identify the call site.
+nexus_debug_mem_free implements the debug-memory path for free.
+
+For tracked allocations it:
+- validates pre-allocation and post-allocation guard regions;
+- removes the allocation from live tracking;
+- updates debugger statistics;
+- records freed-allocation metadata when enabled;
+- fills retained freed storage with the freed-memory pattern when
+  NEXUS_MEMORY_USE_AFTER_FREE_CHECK is enabled;
+- releases backing storage when retention is not required;
+- optionally emits a memory-log callback.
+
+Depending on enabled debugger features, the operation can diagnose:
+- buffer underruns;
+- buffer overruns;
+- double frees;
+- frees of pointers into the interior of an allocation.
+
+Allocations originating from a debugger-suspended period are released through
+the underlying libc allocator.
+
+Passing NULL follows the debugger implementation's normal free semantics.
 */
 extern void nexus_debug_mem_free(void *buf, char *file, uint32 line);
 
+/* ---------------------------------------------------------------------------- */
+/* ALLOCATION METADATA                                                          */
+/* ---------------------------------------------------------------------------- */
+
 /*
-nexus_debug_mem_comment attaches an arbitrary label to a live allocation.
-Useful in nexus_debug_mem_print output to identify buffers. Returns TRUE when buf is tracked.
+nexus_debug_mem_comment associates a descriptive label with a tracked live
+allocation.
+
+buf must identify the start of a currently tracked allocation.
+
+comment is copied into debugger-owned storage. The caller therefore does not
+need to preserve the source string after this function returns.
+
+Replacing an existing comment releases the previous debugger-owned copy.
+
+Comments are displayed by nexus_debug_mem_print and can be used to distinguish
+allocations originating from the same source location.
+
+Returns TRUE when buf identifies a tracked allocation and the comment operation
+succeeds. Returns FALSE when no matching allocation exists or the comment
+cannot be stored.
 */
 extern boolean nexus_debug_mem_comment(void *buf, char *comment);
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY STATISTICS                                                            */
+/* ---------------------------------------------------------------------------- */
+
 /*
-NexusDebugMemSummary holds aggregate allocation statistics recorded by the memory debugger.
-Counters only advance while nexus_debug_mem_active is TRUE and are cleared by nexus_debug_mem_reset.
+NexusDebugMemSummary contains process-wide memory-debug statistics.
+
+live_bytes:
+  Number of user-visible bytes currently represented by tracked live
+  allocations.
+
+peak_live_bytes:
+  Highest live_bytes value observed since debugger initialization or the last
+  statistics reset.
+
+live_block_count:
+  Number of currently tracked live allocations.
+
+peak_live_block_count:
+  Highest live_block_count observed since debugger initialization or the last
+  statistics reset.
+
+total_bytes_allocated:
+  Cumulative user-visible bytes allocated while full debugging was active.
+
+total_bytes_freed:
+  Cumulative user-visible bytes freed from tracked allocations.
+
+allocation_count:
+  Number of tracked allocation events.
+
+free_count:
+  Number of tracked free events.
+
+call_site_count:
+  Number of distinct source allocation sites known to the debugger.
+
+largest_allocation_bytes:
+  Largest individual tracked allocation observed during the current statistics
+  interval.
 */
 typedef struct NexusDebugMemSummary {
   size_t     live_bytes;
@@ -1034,31 +1377,81 @@ typedef struct NexusDebugMemSummary {
 } NexusDebugMemSummary;
 
 /*
-nexus_debug_mem_summary_get writes current allocation statistics into summary.
-summary must not be NULL. Thread-safe when initialized via nexus_debug_mem_thread_safe_init.
+nexus_debug_mem_summary_get copies a consistent snapshot of process-wide
+memory-debug statistics into summary.
+
+summary must not be NULL.
+
+The snapshot is taken while debugger metadata is synchronized, but naturally
+represents only the instant at which it was captured; other threads may allocate
+or free memory immediately afterward.
 */
 extern void nexus_debug_mem_summary_get(NexusDebugMemSummary *summary);
 
 /*
-nexus_debug_mem_summary_print writes a human-readable allocation statistics overview to stdout.
+nexus_debug_mem_summary_print writes a compact human-readable summary of current
+memory-debug statistics to standard output.
+
+The function obtains a consistent statistics snapshot before formatting it.
 */
 extern void nexus_debug_mem_summary_print(void);
 
 /*
-nexus_debug_mem_print writes a human-readable leak report to stdout.
-Lists each call site with more live blocks than min_allocs, including byte totals, live
-allocation counts, and each live block with pointer, size, and any comment.
+nexus_debug_mem_print writes the current tracked-allocation report to standard
+output.
+
+For each qualifying allocation site the report includes:
+- source file and line;
+- currently live bytes;
+- currently live allocation count;
+- allocation/free statistics;
+- individual live pointers and sizes;
+- optional allocation comments.
+
+min_allocs filters allocation sites according to their live allocation count.
+
+Debugger metadata remains protected while the report traverses the tracking
+table so concurrent allocation cannot invalidate report data.
 */
 extern void nexus_debug_mem_print(uint32 min_allocs);
 
 /*
-nexus_debug_mem_reset clears per-site byte totals and allocation counters without freeing live
-memory or discarding tracked blocks. Use to ignore allocations made before a known baseline.
+nexus_debug_mem_reset resets interval-style statistics without freeing or
+forgetting currently live allocations.
+
+The operation resets:
+- cumulative allocation-event counters;
+- cumulative free-event counters;
+- interval allocation byte totals;
+- peak statistics;
+- largest-allocation statistics;
+- corresponding per-site historical counters.
+
+Current live allocations remain tracked.
+
+In particular, current live_bytes and live_block_count remain valid so that
+later frees cannot underflow or corrupt live-allocation accounting.
+
+After reset, current live usage becomes the new baseline from which subsequent
+peak values grow.
 */
 extern void nexus_debug_mem_reset(void);
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY MEASUREMENTS                                                          */
+/* ---------------------------------------------------------------------------- */
+
 /*
-NexusDebugMemMeasurement holds allocation statistics for a single measurement interval.
+NexusDebugMemMeasurement contains allocation activity observed during a
+measurement interval.
+
+allocation_count is the number of allocation events during the interval.
+
+total_bytes_allocated is the cumulative number of user-visible bytes allocated
+during the interval.
+
+largest_allocation_bytes is the size of the largest individual allocation
+observed during the interval.
 */
 typedef struct NexusDebugMemMeasurement {
   uint_large allocation_count;
@@ -1067,8 +1460,13 @@ typedef struct NexusDebugMemMeasurement {
 } NexusDebugMemMeasurement;
 
 /*
-NexusDebugMemMeasurementContext stores a baseline captured by measurement begin.
-Pass the same context to measurement end to compute the interval delta.
+NexusDebugMemMeasurementContext stores the baseline needed to calculate one
+allocation measurement interval.
+
+Applications should treat its fields as implementation-managed state after
+passing the context to nexus_debug_mem_measurement_begin.
+
+The structure remains public for ABI compatibility and stack allocation.
 */
 typedef struct NexusDebugMemMeasurementContext {
   uint_large baseline_allocation_count;
@@ -1077,97 +1475,218 @@ typedef struct NexusDebugMemMeasurementContext {
 } NexusDebugMemMeasurementContext;
 
 /*
-nexus_debug_mem_measurement_begin snapshots current allocation statistics into context.
-Global leak tracking is not reset; only the interval delta is reported by measurement end.
-context must not be NULL.
+nexus_debug_mem_measurement_begin starts an allocation measurement using
+context.
+
+The function snapshots the current allocation counters and registers context as
+an active measurement interval.
+
+It does not reset global allocation tracking or global statistics.
+
+Multiple measurement contexts may be active concurrently. Allocations occurring
+while several measurements are active contribute to each applicable interval.
+
+context must remain valid until the corresponding
+nexus_debug_mem_measurement_end call.
 */
 extern void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context);
 
 /*
-nexus_debug_mem_measurement_end writes allocation statistics for the interval since begin.
-measurement and context must not be NULL. Pair with nexus_debug_mem_measurement_begin.
+nexus_debug_mem_measurement_end finishes the interval represented by context and
+writes the resulting statistics into measurement.
+
+The function calculates differences from the baseline captured by
+nexus_debug_mem_measurement_begin and unregisters the context from active
+measurement tracking.
+
+context and measurement must not be NULL.
+
+The same context should not be ended more than once without first beginning a
+new interval.
 */
 extern void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement);
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY USAGE QUERIES                                                         */
+/* ---------------------------------------------------------------------------- */
+
 /*
-nexus_debug_mem_consumption returns the sum of sizes for all currently tracked live allocations.
-Thread-safe when initialized via nexus_debug_mem_thread_safe_init.
+nexus_debug_mem_consumption returns the total number of user-visible bytes
+belonging to currently tracked live allocations.
+
+The result does not include:
+- debugger guard bytes;
+- debugger metadata;
+- allocations made while full debugging was suspended.
+
+The value is obtained from synchronized debugger state.
 */
 extern size_t nexus_debug_mem_consumption(void);
 
 /*
-nexus_debug_mem_footprint returns the sum of sizes stored in the allocation table.
-min_allocs is reserved for future filtering and is currently ignored.
+nexus_debug_mem_footprint returns the sum of user-visible sizes represented by
+the live allocation table.
+
+min_allocs is retained for API compatibility and possible future filtering.
+
+The function currently reports total tracked live allocation size.
 */
 extern size_t nexus_debug_mem_footprint(uint32 min_allocs);
 
+/* ---------------------------------------------------------------------------- */
+/* ALLOCATION QUERIES                                                           */
+/* ---------------------------------------------------------------------------- */
+
 /*
-nexus_debug_mem_query_allocation resolves pointer to the start of its owning live allocation.
-When found, optionally writes source line, file path, and allocation size through line, file,
-and size. Returns the allocation base address, or NULL when pointer is not inside a live block.
+nexus_debug_mem_query_allocation searches for the tracked live allocation
+containing pointer.
+
+pointer may identify either the beginning or an interior byte of an allocation.
+
+When a matching allocation is found:
+- line receives its source line when non-NULL;
+- file receives its source file string when non-NULL;
+- size receives its user-visible allocation size when non-NULL.
+
+The returned pointer is the beginning of the containing allocation.
+
+The debugger owns the returned file string. Its storage is stable for the
+lifetime of the corresponding allocation-site metadata and must not be modified
+or freed by the caller.
+
+Returns NULL when pointer does not belong to a tracked live allocation.
 */
 extern void *nexus_debug_mem_query_allocation(void *pointer, uint32 *line, char **file, size_t *size);
 
 /*
-nexus_debug_mem_query_is_allocated checks whether size bytes at pointer are inside a live block.
-Returns FALSE when the range extends past the allocation, overlaps freed memory, or lies on the
-stack. When ignore_not_found is TRUE, an untracked pointer returns FALSE without a warning;
-otherwise a warning is printed first. When the debugger is inactive, returns TRUE without scanning.
+nexus_debug_mem_query_is_allocated validates whether the byte range
+
+  [pointer, pointer + size)
+
+is contained within a tracked live allocation.
+
+Returns TRUE when the complete range is valid.
+
+Returns FALSE when:
+- pointer is not within a tracked live allocation;
+- the requested range extends beyond the allocation;
+- the range refers to known freed storage;
+- the range is identified as stack storage.
+
+When ignore_not_found is FALSE, an unrecognized pointer produces a diagnostic.
+When TRUE, absence from the tracking table is silent.
+
+When full memory debugging is suspended, the function returns TRUE without
+performing tracked-allocation validation.
 */
 extern boolean nexus_debug_mem_query_is_allocated(const void *pointer, size_t size, boolean ignore_not_found);
+
+/* ---------------------------------------------------------------------------- */
+/* DEBUGGED MEMORY OPERATIONS                                                   */
+/* ---------------------------------------------------------------------------- */
 
 #if NEXUS_MEMORY_DEBUG_ENABLED
 
 /*
-nexus_debug_mem_bytes_copy is the memory-debugger path for nexus_memory_bytes_copy.
-Validates dest and src against tracked heap allocations, emits a log callback event when installed,
-then copies byte_count bytes. file and line identify the call site.
+nexus_debug_mem_bytes_copy is the debug-memory implementation path for
+nexus_memory_bytes_copy.
+
+When full debugging is active, dest and src are checked against tracked
+allocation boundaries before the copy.
+
+A memory-log callback is emitted when logging is installed.
+
+The actual operation has memcpy semantics: source and destination regions must
+not overlap.
+
+file and line identify the source operation site.
 */
 extern void nexus_debug_mem_bytes_copy(void *dest, const void *src, uint_large byte_count, char *file, uint32 line);
 
 /*
-nexus_debug_mem_bytes_set is the memory-debugger path for nexus_memory_bytes_set.
-Validates dest against tracked heap allocations, emits a log callback event when installed, then
-writes byte into each of byte_count bytes. file and line identify the call site.
+nexus_debug_mem_bytes_set is the debug-memory implementation path for
+nexus_memory_bytes_set.
+
+When full debugging is active, the destination range is validated against
+tracked allocation boundaries before writing.
+
+A memory-log callback is emitted when logging is installed.
+
+file and line identify the source operation site.
 */
 extern void nexus_debug_mem_bytes_set(void *dest, uint8 byte, uint_large byte_count, char *file, uint32 line);
 
 /*
-nexus_debug_mem_bytes_clear is the memory-debugger path for nexus_memory_bytes_clear.
-Validates dest against tracked heap allocations, emits a log callback event when installed, then
-writes zero into each of byte_count bytes. file and line identify the call site.
+nexus_debug_mem_bytes_clear is the debug-memory implementation path for
+nexus_memory_bytes_clear.
+
+When full debugging is active, the destination range is validated against
+tracked allocation boundaries before clearing.
+
+A memory-log callback is emitted when logging is installed.
+
+file and line identify the source operation site.
 */
 extern void nexus_debug_mem_bytes_clear(void *dest, uint_large byte_count, char *file, uint32 line);
 
 #endif /* NEXUS_MEMORY_DEBUG_ENABLED */
 
+/* ---------------------------------------------------------------------------- */
+/* MEMORY INTEGRITY CHECKS                                                      */
+/* ---------------------------------------------------------------------------- */
+
 /*
-nexus_debug_mem_check_bounds scans all live allocations for guard-byte overruns and underruns,
-and optionally use-after-free writes when NEXUS_MEMORY_USE_AFTER_FREE_CHECK is enabled.
-Returns TRUE when any corruption is detected. Each error triggers NEXUS_MEMORY_CALL_ON_ERROR.
+nexus_debug_mem_check_bounds scans tracked allocations for memory corruption.
+
+The function checks:
+- pre-allocation guard regions for buffer underruns;
+- post-allocation guard regions for buffer overruns;
+- retained freed blocks for writes after free when
+  NEXUS_MEMORY_USE_AFTER_FREE_CHECK is enabled.
+
+Detected corruption emits diagnostic information and invokes
+NEXUS_MEMORY_CALL_ON_ERROR according to debugger configuration.
+
+Returns TRUE when corruption is detected and FALSE otherwise.
+
+The tracking state is synchronized for the duration of the scan.
 */
 extern boolean nexus_debug_mem_check_bounds(void);
 
 /*
-nexus_debug_mem_check_stack_reference scans live allocations for pointer values that may refer
-to stack memory. Accuracy improves after nexus_debug_mem_stack_pointer_set. Returns TRUE when
-any suspicious reference is reported.
+nexus_debug_mem_check_stack_reference scans tracked heap allocations for pointer
+values that appear to reference stack memory.
+
+When nexus_debug_mem_stack_pointer_set has registered a known stack range, that
+range is used directly.
+
+Otherwise the function uses NEXUS_MEMORY_STACK_GUESS_SIZE and heuristic stack
+distance detection.
+
+The check is diagnostic and may produce false positives because arbitrary
+allocation contents can resemble pointer values.
+
+Returns TRUE when at least one suspicious stack reference is found.
 */
 extern boolean nexus_debug_mem_check_stack_reference(void);
 
 /*
-nexus_debug_mem_check_heap_reference reports live allocations that cannot be reached from any
-other tracked heap block or the configured stack scan. minimum_allocations skips call sites with
-fewer total entries in the allocation table to reduce noise from short-lived helpers.
+nexus_debug_mem_check_heap_reference searches for tracked heap allocations which
+appear to be unreachable from other tracked heap allocations or the configured
+stack-reference search.
+
+minimum_allocations suppresses reporting for allocation sites below the
+specified allocation threshold and can be used to reduce noise from transient
+helper allocations.
+
+This is a heuristic debugging facility rather than a tracing garbage collector;
+absence of a discovered reference does not prove that an allocation is leaked.
 */
 extern void nexus_debug_mem_check_heap_reference(uint32 minimum_allocations);
 
-/*
-exit_crash terminates the process by writing through a null pointer.
-Used when NEXUS_EXIT_CRASH_ENABLED replaces exit() so debuggers break at a deterministic fault
-instead of a clean libc exit. status_code is currently unused but reserved for future use.
-*/
-extern void exit_crash(uint32 status_code);
+/* ---------------------------------------------------------------------------- */
+/* CORE MEMORY/TYPE HELPERS                                                     */
+/* ---------------------------------------------------------------------------- */
 
 #define NEXUS_SIZEOF(type)                             ((size_t)sizeof(type))
 #define NEXUS_OFFSETOF(type, field)                    ((size_t)offsetof(type, field))
@@ -1182,19 +1701,35 @@ extern void exit_crash(uint32 status_code);
              } *)0)                                                                                                                                  \
                  ->t))
 
+/* ---------------------------------------------------------------------------- */
+/* STANDARD ALLOCATOR REDIRECTION                                               */
+/* ---------------------------------------------------------------------------- */
+
 #if NEXUS_MEMORY_DEBUG_ENABLED
 
 #  include <stdlib.h>
 
+/*
+Do not redirect libc allocation calls inside the memory debugger implementation
+itself. That translation unit defines NEXUS_MEMORY_DEBUG_IMPLEMENTATION before
+including Nexus and therefore retains direct access to libc allocation.
+*/
 #  if !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#    define malloc(n)     nexus_debug_mem_malloc(n, __FILE__, __LINE__)
-#    define calloc(n, m)  nexus_debug_mem_calloc(n, m, __FILE__, __LINE__)
-#    define realloc(n, m) nexus_debug_mem_realloc(n, m, __FILE__, __LINE__)
-#    define free(n)       nexus_debug_mem_free(n, __FILE__, __LINE__)
+#    define malloc(n)     nexus_debug_mem_malloc((n), __FILE__, __LINE__)
+#    define calloc(n, m)  nexus_debug_mem_calloc((n), (m), __FILE__, __LINE__)
+#    define realloc(n, m) nexus_debug_mem_realloc((n), (m), __FILE__, __LINE__)
+#    define free(n)       nexus_debug_mem_free((n), __FILE__, __LINE__)
 #  endif
 
 #else
 
+/*
+When memory debugging is compiled out, debugger-only operations collapse to
+zero-cost or constant-result forms.
+
+NEXUS_MEMORY_DEBUG_INTERNAL prevents these substitutions inside debugger-related
+implementation units which still need declarations or implementation details.
+*/
 #  ifndef NEXUS_MEMORY_DEBUG_INTERNAL
 #    define nexus_debug_mem_thread_safe_init(n, m, k)
 #    define nexus_debug_mem_stack_pointer_set(n, m)
@@ -1203,7 +1738,7 @@ extern void exit_crash(uint32 status_code);
 #    define nexus_debug_mem_active_exchange(active) TRUE
 #    define nexus_debug_mem_log_callback_set(n, m)
 #    define nexus_debug_mem_log_callback_installed_get() FALSE
-#    define nexus_debug_mem_comment(n, m)
+#    define nexus_debug_mem_comment(n, m)                FALSE
 #    define nexus_debug_mem_print(n)
 #    define nexus_debug_mem_summary_print()
 #    define nexus_debug_mem_reset()
@@ -1218,117 +1753,30 @@ extern void exit_crash(uint32 status_code);
 
 #endif
 
-/*
-NEXUS_MEMORY_PREFETCH_LOCALITY_* map to temporal-locality hints for nexus_memory_prefetch.
-
-Higher locality keeps the line closer to the core; lower locality minimizes cache pollution.
-*/
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_NONE   0
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW    1
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM 2
-#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH   3
+/* ---------------------------------------------------------------------------- */
+/* DEBUGGER-FRIENDLY PROCESS TERMINATION                                        */
+/* ---------------------------------------------------------------------------- */
 
 /*
-NEXUS_MEMORY_PREFETCH hints the CPU to load the cache line containing address before it is accessed.
+NEXUS_EXIT_CRASH_ENABLED redirects exit to exit_crash.
 
-read_write: FALSE prepares for read; TRUE prepares for read-modify-write.
-locality: one of NEXUS_MEMORY_PREFETCH_LOCALITY_*.
-No-op when the platform has no prefetch intrinsic.
+This is intended for development builds where process termination should stop at
+a deterministic debugger-visible fault rather than silently terminating through
+the C runtime.
+
+Default: enabled.
 */
-#if defined(__GNUC__) || defined(__clang__)
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
-#elif defined(_MSC_VER)
-#  include <intrin.h>
-#  include <xmmintrin.h>
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality)                                                                                       \
-    do {                                                                                                                                             \
-      if ((read_write) != FALSE) {                                                                                                                   \
-        _m_prefetchw((void *)(address));                                                                                                             \
-      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM) {                                                                              \
-        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                          \
-      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                 \
-        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                          \
-      } else {                                                                                                                                       \
-        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                          \
-      }                                                                                                                                              \
-    } while (0)
-#else
-#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) ((void)(address), (void)(read_write), (void)(locality))
+#ifndef NEXUS_EXIT_CRASH_ENABLED
+#  define NEXUS_EXIT_CRASH_ENABLED 1
 #endif
 
 /*
-nexus_memory_bytes_copy copies byte_count bytes from src into dest.
+exit_crash terminates execution through an intentional invalid memory access so
+an attached debugger breaks at the termination site.
 
-dest and src must not be NULL when byte_count is greater than zero.
-The regions must not overlap.
-
-When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_copy so dest and
-src are checked against tracked heap allocations and a memory-debugger log event is emitted when a
-log callback is installed.
+status_code is retained for exit-compatible call sites and possible future use.
 */
-#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_copy(dest, src, byte_count) nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
-#else
-static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
-  if (byte_count == 0) {
-    return;
-  }
-
-  NEXUS_ASSERT_DEBUG(dest != NULL);
-  NEXUS_ASSERT_DEBUG(src != NULL);
-
-  memcpy(dest, src, (size_t)byte_count);
-}
-#endif
-
-/*
-nexus_memory_bytes_set writes byte into each of byte_count bytes starting at dest.
-
-dest must not be NULL when byte_count is greater than zero.
-
-When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_set so dest is
-checked against tracked heap allocations and a memory-debugger log event is emitted when a log
-callback is installed.
-*/
-#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_set(dest, byte, byte_count) nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
-#else
-static void nexus_memory_bytes_set(void *dest, uint8 byte, uint_large byte_count) /* NOLINT */ {
-  if (byte_count == 0) {
-    return;
-  }
-
-  NEXUS_ASSERT_DEBUG(dest != NULL);
-
-  memset(dest, (int)byte, (size_t)byte_count);
-}
-#endif
-
-/*
-nexus_memory_bytes_clear writes zero into each of byte_count bytes starting at dest.
-
-dest must not be NULL when byte_count is greater than zero.
-
-When NEXUS_MEMORY_DEBUG_ENABLED is set, this routes through nexus_debug_mem_bytes_clear so dest is
-checked against tracked heap allocations and a memory-debugger log event is emitted when a log
-callback is installed.
-*/
-#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
-#  define nexus_memory_bytes_clear(dest, byte_count) nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
-#else
-static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLINT */ {
-  nexus_memory_bytes_set(dest, 0, byte_count);
-}
-#endif
-
-static int nexus_memory_bytes_compare(const void *bytes_a, const void *bytes_b, uint_large size) { /* NOLINT(clang-diagnostic-unused-function) */
-  return memcmp(bytes_a, bytes_b, size);
-}
-
-#define NEXUS_FREE_IF_NOT_NULL(ptr)                                                                                                                  \
-  if ((ptr) != NULL) {                                                                                                                               \
-    free((ptr));                                                                                                                                     \
-  }
+extern void exit_crash(uint32 status_code);
 
 #if NEXUS_EXIT_CRASH_ENABLED
 
@@ -1336,8 +1784,12 @@ static int nexus_memory_bytes_compare(const void *bytes_a, const void *bytes_b, 
 #    include <stdlib.h>
 #  endif
 
+/*
+NEXUS_EXIT_CRASH_IMPLEMENTATION must only be defined by the translation unit
+implementing exit_crash so that its own implementation is not redirected.
+*/
 #  if !defined(NEXUS_EXIT_CRASH_IMPLEMENTATION)
-#    define exit(n) exit_crash(n)
+#    define exit(n) exit_crash((uint32)(n))
 #  endif
 
 #endif
@@ -2582,10 +3034,11 @@ extern uint32 nexus_process_id_get(void);
 /* THREADS                                                                      */
 /* ---------------------------------------------------------------------------- */
 
-typedef struct NexusThread    NexusThread;
-typedef struct NexusMutex     NexusMutex;
-typedef struct NexusCond      NexusCond;
-typedef struct NexusSemaphore NexusSemaphore;
+typedef struct NexusThread           NexusThread;
+typedef struct NexusMutex            NexusMutex;
+typedef struct NexusCond             NexusCond;
+typedef struct NexusSemaphore        NexusSemaphore;
+typedef struct NexusThreadsWaitGroup NexusThreadsWaitGroup;
 
 typedef void (*NexusThreadFunc)(void *user_data);
 
@@ -2594,9 +3047,7 @@ nexus_threads_sleep suspends the calling thread for at least duration.
 
 A duration of zero or less returns immediately.
 
-The operating system scheduler may cause the actual suspension to exceed the
-requested duration. Sub-millisecond sleeps are best-effort and are limited by
-the timer facilities and hardware supported by the host operating system.
+Contract: duration.nanoseconds must not be negative (asserted).
 */
 extern void nexus_threads_sleep(NexusDuration duration);
 
@@ -2606,106 +3057,260 @@ yielding the calling thread to the operating system scheduler.
 
 A duration of zero or less returns immediately.
 
-This function consumes CPU time for the entire wait and should only be used for
-very short latency-sensitive waits. The actual wait duration is limited by the
-precision and overhead of the platform monotonic clock.
+Contract: duration.nanoseconds must not be negative (asserted).
 */
 extern void nexus_threads_spin_wait(NexusDuration duration);
 
 /*
-nexus_thread_create spawns a new thread executing entry_func with user_data.
-Returns NULL on memory allocation or platform thread creation failure.
+nexus_threads_create spawns a new thread executing entry_func with user_data.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+- NEXUS_ERROR_IO if OS thread creation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if out_thread or entry_func is NULL.
+
+Contract: out_thread and entry_func must not be NULL (asserted).
 */
-extern NexusThread *nexus_thread_create(NexusThreadFunc entry_func, void *user_data);
+extern NError nexus_threads_create(NexusThread **out_thread, NexusThreadFunc entry_func, void *user_data);
 
 /*
-nexus_thread_join blocks the calling thread until the target thread finishes execution.
+nexus_threads_join blocks the calling thread until the target thread finishes execution.
 Joining a thread automatically frees its handle resources.
-Calling join twice or joining a NULL thread handle is invalid.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS join operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if thread is NULL.
+
+Contract: thread must not be NULL (asserted).
 */
-extern void nexus_thread_join(NexusThread *thread);
+extern NError nexus_threads_join(NexusThread *thread);
 
 /*
-nexus_mutex_create allocates and initializes a recursive-capable OS mutex.
-Returns NULL if initialization fails.
+nexus_threads_mutex_create allocates and initializes a recursive-capable OS mutex.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+- NEXUS_ERROR_IO if OS mutex initialization fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if out_mutex is NULL.
+
+Contract: out_mutex must not be NULL (asserted).
 */
-extern NexusMutex *nexus_mutex_create(void);
+extern NError nexus_threads_mutex_create(NexusMutex **out_mutex);
 
 /*
-nexus_mutex_lock blocks until exclusive ownership of the mutex is acquired.
+nexus_threads_mutex_lock blocks until exclusive ownership of the mutex is acquired.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS lock operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if mutex is NULL.
+
+Contract: mutex must not be NULL (asserted).
 */
-extern void nexus_mutex_lock(NexusMutex *mutex);
+extern NError nexus_threads_mutex_lock(NexusMutex *mutex);
 
 /*
-nexus_mutex_try_lock attempts to acquire exclusive ownership without blocking.
-Returns TRUE on success (lock acquired), FALSE on failure.
+nexus_threads_mutex_try_lock attempts to acquire exclusive ownership without blocking.
+
+Returns TRUE on success (lock acquired), FALSE on failure or if mutex is NULL.
+
+Contract: mutex must not be NULL (asserted).
 */
-extern boolean nexus_mutex_try_lock(NexusMutex *mutex);
+extern boolean nexus_threads_mutex_try_lock(NexusMutex *mutex);
 
 /*
-nexus_mutex_unlock releases exclusive ownership of the mutex.
+nexus_threads_mutex_unlock releases exclusive ownership of the mutex.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS unlock operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if mutex is NULL.
+
+Contract: mutex must not be NULL (asserted).
 */
-extern void nexus_mutex_unlock(NexusMutex *mutex);
+extern NError nexus_threads_mutex_unlock(NexusMutex *mutex);
 
 /*
-nexus_mutex_destroy frees all resources associated with the mutex.
+nexus_threads_mutex_destroy frees all resources associated with the mutex.
 The mutex must be unlocked before destruction.
+
+Contract: mutex must not be NULL (asserted).
 */
-extern void nexus_mutex_destroy(NexusMutex *mutex);
+extern void nexus_threads_mutex_destroy(NexusMutex *mutex);
 
 /*
-nexus_cond_create allocates and initializes a condition variable.
-Returns NULL if initialization fails.
+nexus_threads_cond_create allocates and initializes a condition variable.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+- NEXUS_ERROR_IO if OS condition variable initialization fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if out_cond is NULL.
+
+Contract: out_cond must not be NULL (asserted).
 */
-extern NexusCond *nexus_cond_create(void);
+extern NError nexus_threads_cond_create(NexusCond **out_cond);
 
 /*
-nexus_cond_wait atomically unlocks the provided mutex and blocks until signaled.
+nexus_threads_cond_wait atomically unlocks the provided mutex and blocks until signaled.
 Re-acquires the mutex prior to returning.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS wait operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if cond or mutex is NULL.
+
+Contract: cond and mutex must not be NULL (asserted).
 */
-extern void nexus_cond_wait(NexusCond *cond, NexusMutex *mutex);
+extern NError nexus_threads_cond_wait(NexusCond *cond, NexusMutex *mutex);
 
 /*
-nexus_cond_wait_timeout waits for a signal or until the timeout duration elapses.
-Returns TRUE if signaled, FALSE if timed out or failed.
+nexus_threads_cond_wait_timeout waits for a signal or until the timeout duration elapses.
+
+Returns TRUE if signaled, FALSE if timed out, failed, or if arguments are invalid.
+
+Contract: cond and mutex must not be NULL, and duration must be strictly positive (asserted).
 */
-extern boolean nexus_cond_wait_timeout(NexusCond *cond, NexusMutex *mutex, NexusDuration duration);
+extern boolean nexus_threads_cond_wait_timeout(NexusCond *cond, NexusMutex *mutex, NexusDuration duration);
 
 /*
-nexus_cond_signal wakes up at least one thread waiting on the condition variable.
+nexus_threads_cond_signal wakes up at least one thread waiting on the condition variable.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS signal operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if cond is NULL.
+
+Contract: cond must not be NULL (asserted).
 */
-extern void nexus_cond_signal(NexusCond *cond);
+extern NError nexus_threads_cond_signal(NexusCond *cond);
 
 /*
-nexus_cond_broadcast wakes up all threads currently waiting on the condition variable.
+nexus_threads_cond_broadcast wakes up all threads currently waiting on the condition variable.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS broadcast operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if cond is NULL.
+
+Contract: cond must not be NULL (asserted).
 */
-extern void nexus_cond_broadcast(NexusCond *cond);
+extern NError nexus_threads_cond_broadcast(NexusCond *cond);
 
 /*
-nexus_cond_destroy frees resources associated with the condition variable.
+nexus_threads_cond_destroy frees resources associated with the condition variable.
+
+Contract: cond must not be NULL (asserted).
 */
-extern void nexus_cond_destroy(NexusCond *cond);
+extern void nexus_threads_cond_destroy(NexusCond *cond);
 
 /*
-nexus_semaphore_create allocates and initializes a counting semaphore.
-Returns NULL if initialization fails.
+nexus_threads_semaphore_create allocates and initializes a counting semaphore.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+- NEXUS_ERROR_IO if OS semaphore initialization fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if out_sem is NULL.
+
+Contract: out_sem must not be NULL (asserted).
 */
-extern NexusSemaphore *nexus_semaphore_create(uint32 initial_count);
+extern NError nexus_threads_semaphore_create(NexusSemaphore **out_sem, uint32 initial_count);
 
 /*
-nexus_semaphore_wait decrements the semaphore counter, blocking if zero.
+nexus_threads_semaphore_wait decrements the semaphore counter, blocking if zero.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS wait operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if sem is NULL.
+
+Contract: sem must not be NULL (asserted).
 */
-extern void nexus_semaphore_wait(NexusSemaphore *sem);
+extern NError nexus_threads_semaphore_wait(NexusSemaphore *sem);
 
 /*
-nexus_semaphore_post increments the semaphore counter, unblocking a waiting thread.
+nexus_threads_semaphore_post increments the semaphore counter, unblocking a waiting thread.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS post operation fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if sem is NULL.
+
+Contract: sem must not be NULL (asserted).
 */
-extern void nexus_semaphore_post(NexusSemaphore *sem);
+extern NError nexus_threads_semaphore_post(NexusSemaphore *sem);
 
 /*
-nexus_semaphore_destroy frees resources associated with the semaphore.
+nexus_threads_semaphore_destroy frees resources associated with the semaphore.
+
+Contract: sem must not be NULL (asserted).
 */
-extern void nexus_semaphore_destroy(NexusSemaphore *sem);
+extern void nexus_threads_semaphore_destroy(NexusSemaphore *sem);
+
+/*
+nexus_threads_waitgroup_create allocates and initializes a new waitgroup.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+- NEXUS_ERROR_IO if OS primitive initialization fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if out_waitgroup is NULL.
+
+Contract: out_waitgroup must not be NULL (asserted).
+*/
+extern NError nexus_threads_waitgroup_create(NexusThreadsWaitGroup **out_waitgroup);
+
+/*
+nexus_threads_waitgroup_add increments or decrements the waitgroup counter by delta.
+If the counter drops to zero, all waiting threads are unblocked.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if underlying OS primitive operations fail.
+- NEXUS_ERROR_INVALID_ARGUMENT if waitgroup is NULL or delta is 0.
+
+Contract: waitgroup must not be NULL, delta must not be 0, and the internal counter
+must never drop below zero (asserted).
+*/
+extern NError nexus_threads_waitgroup_add(NexusThreadsWaitGroup *waitgroup, int32 delta);
+
+/*
+nexus_threads_waitgroup_done decrements the waitgroup counter by 1.
+Convenience wrapper around nexus_threads_waitgroup_add(wg, -1).
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if underlying OS primitive operations fail.
+- NEXUS_ERROR_INVALID_ARGUMENT if waitgroup is NULL.
+
+Contract: waitgroup must not be NULL (asserted).
+*/
+extern NError nexus_threads_waitgroup_done(NexusThreadsWaitGroup *waitgroup);
+
+/*
+nexus_threads_waitgroup_wait blocks the calling thread until the waitgroup counter
+reaches zero. If the counter is already zero or negative, it returns immediately.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if underlying OS primitive operations fail.
+- NEXUS_ERROR_INVALID_ARGUMENT if waitgroup is NULL.
+
+Contract: waitgroup must not be NULL (asserted).
+*/
+extern NError nexus_threads_waitgroup_wait(NexusThreadsWaitGroup *waitgroup);
+
+/*
+nexus_threads_waitgroup_destroy frees all platform resources associated with the waitgroup.
+The waitgroup must not have active waiting threads during destruction.
+
+Contract: waitgroup must not be NULL (asserted).
+*/
+extern void nexus_threads_waitgroup_destroy(NexusThreadsWaitGroup *waitgroup);
 
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
