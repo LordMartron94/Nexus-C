@@ -2582,6 +2582,13 @@ extern uint32 nexus_process_id_get(void);
 /* THREADS                                                                      */
 /* ---------------------------------------------------------------------------- */
 
+typedef struct NexusThread    NexusThread;
+typedef struct NexusMutex     NexusMutex;
+typedef struct NexusCond      NexusCond;
+typedef struct NexusSemaphore NexusSemaphore;
+
+typedef void (*NexusThreadFunc)(void *user_data);
+
 /*
 nexus_threads_sleep suspends the calling thread for at least duration.
 
@@ -2604,6 +2611,101 @@ very short latency-sensitive waits. The actual wait duration is limited by the
 precision and overhead of the platform monotonic clock.
 */
 extern void nexus_threads_spin_wait(NexusDuration duration);
+
+/*
+nexus_thread_create spawns a new thread executing entry_func with user_data.
+Returns NULL on memory allocation or platform thread creation failure.
+*/
+extern NexusThread *nexus_thread_create(NexusThreadFunc entry_func, void *user_data);
+
+/*
+nexus_thread_join blocks the calling thread until the target thread finishes execution.
+Joining a thread automatically frees its handle resources.
+Calling join twice or joining a NULL thread handle is invalid.
+*/
+extern void nexus_thread_join(NexusThread *thread);
+
+/*
+nexus_mutex_create allocates and initializes a recursive-capable OS mutex.
+Returns NULL if initialization fails.
+*/
+extern NexusMutex *nexus_mutex_create(void);
+
+/*
+nexus_mutex_lock blocks until exclusive ownership of the mutex is acquired.
+*/
+extern void nexus_mutex_lock(NexusMutex *mutex);
+
+/*
+nexus_mutex_try_lock attempts to acquire exclusive ownership without blocking.
+Returns TRUE on success (lock acquired), FALSE on failure.
+*/
+extern boolean nexus_mutex_try_lock(NexusMutex *mutex);
+
+/*
+nexus_mutex_unlock releases exclusive ownership of the mutex.
+*/
+extern void nexus_mutex_unlock(NexusMutex *mutex);
+
+/*
+nexus_mutex_destroy frees all resources associated with the mutex.
+The mutex must be unlocked before destruction.
+*/
+extern void nexus_mutex_destroy(NexusMutex *mutex);
+
+/*
+nexus_cond_create allocates and initializes a condition variable.
+Returns NULL if initialization fails.
+*/
+extern NexusCond *nexus_cond_create(void);
+
+/*
+nexus_cond_wait atomically unlocks the provided mutex and blocks until signaled.
+Re-acquires the mutex prior to returning.
+*/
+extern void nexus_cond_wait(NexusCond *cond, NexusMutex *mutex);
+
+/*
+nexus_cond_wait_timeout waits for a signal or until the timeout duration elapses.
+Returns TRUE if signaled, FALSE if timed out or failed.
+*/
+extern boolean nexus_cond_wait_timeout(NexusCond *cond, NexusMutex *mutex, NexusDuration duration);
+
+/*
+nexus_cond_signal wakes up at least one thread waiting on the condition variable.
+*/
+extern void nexus_cond_signal(NexusCond *cond);
+
+/*
+nexus_cond_broadcast wakes up all threads currently waiting on the condition variable.
+*/
+extern void nexus_cond_broadcast(NexusCond *cond);
+
+/*
+nexus_cond_destroy frees resources associated with the condition variable.
+*/
+extern void nexus_cond_destroy(NexusCond *cond);
+
+/*
+nexus_semaphore_create allocates and initializes a counting semaphore.
+Returns NULL if initialization fails.
+*/
+extern NexusSemaphore *nexus_semaphore_create(uint32 initial_count);
+
+/*
+nexus_semaphore_wait decrements the semaphore counter, blocking if zero.
+*/
+extern void nexus_semaphore_wait(NexusSemaphore *sem);
+
+/*
+nexus_semaphore_post increments the semaphore counter, unblocking a waiting thread.
+*/
+extern void nexus_semaphore_post(NexusSemaphore *sem);
+
+/*
+nexus_semaphore_destroy frees resources associated with the semaphore.
+*/
+extern void nexus_semaphore_destroy(NexusSemaphore *sem);
 
 /* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
