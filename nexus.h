@@ -1754,6 +1754,243 @@ implementation units which still need declarations or implementation details.
 #endif
 
 /* ---------------------------------------------------------------------------- */
+/* GENERAL MEMORY OPERATIONS                                                    */
+/* ---------------------------------------------------------------------------- */
+
+/*
+NEXUS_MEMORY_PREFETCH_LOCALITY_* specifies the expected temporal locality of
+memory passed to NEXUS_MEMORY_PREFETCH.
+
+Higher locality indicates that the prefetched cache line is expected to be used
+again soon and should therefore be retained closer to the processor.
+
+NEXUS_MEMORY_PREFETCH_LOCALITY_NONE:
+  The data is not expected to be reused after the imminent access. Prefer
+  minimal cache pollution.
+
+NEXUS_MEMORY_PREFETCH_LOCALITY_LOW:
+  The data may be reused, but only with relatively low temporal locality.
+
+NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM:
+  The data is expected to be reused with moderate temporal locality.
+
+NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH:
+  The data is expected to be reused soon and should preferably remain in the
+  nearest practical cache level.
+
+These values correspond directly to the locality range expected by GCC and
+Clang's __builtin_prefetch.
+*/
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_NONE   0
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_LOW    1
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM 2
+#define NEXUS_MEMORY_PREFETCH_LOCALITY_HIGH   3
+
+/*
+NEXUS_MEMORY_PREFETCH provides a non-binding hint that the cache line containing
+address is likely to be accessed soon.
+
+address identifies the memory location to prefetch.
+
+read_write specifies the expected access:
+- FALSE indicates a read-oriented access;
+- TRUE indicates an access which may modify the memory.
+
+locality must be one of NEXUS_MEMORY_PREFETCH_LOCALITY_*.
+
+Prefetching does not alter program semantics. Implementations may ignore the
+request entirely.
+
+On GCC and Clang this maps to __builtin_prefetch.
+
+On MSVC, appropriate x86/x64 prefetch intrinsics are used.
+
+On platforms or compilers where no supported prefetch primitive is available,
+the macro evaluates its arguments only sufficiently to suppress unused-value
+warnings and otherwise performs no operation.
+
+Callers should use prefetching only when measurement demonstrates a benefit.
+Incorrect or excessive prefetching can reduce performance by consuming memory
+bandwidth and polluting processor caches.
+*/
+#if defined(__GNUC__) || defined(__clang__)
+
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) __builtin_prefetch((const void *)(address), (read_write) != FALSE, (int)(locality))
+
+#elif defined(_MSC_VER)
+
+#  include <intrin.h>
+#  include <xmmintrin.h>
+
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality)                                                                                       \
+    do {                                                                                                                                             \
+      if ((read_write) != FALSE) {                                                                                                                   \
+        _m_prefetchw((void *)(address));                                                                                                             \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_MEDIUM) {                                                                              \
+        _mm_prefetch((const char *)(address), _MM_HINT_T0);                                                                                          \
+      } else if ((locality) >= NEXUS_MEMORY_PREFETCH_LOCALITY_LOW) {                                                                                 \
+        _mm_prefetch((const char *)(address), _MM_HINT_T1);                                                                                          \
+      } else {                                                                                                                                       \
+        _mm_prefetch((const char *)(address), _MM_HINT_T2);                                                                                          \
+      }                                                                                                                                              \
+    } while (0)
+
+#else
+
+#  define NEXUS_MEMORY_PREFETCH(address, read_write, locality) ((void)(address), (void)(read_write), (void)(locality))
+
+#endif
+
+/*
+nexus_memory_bytes_copy copies byte_count bytes from src into dest.
+
+dest and src must point to valid ranges containing at least byte_count bytes when
+byte_count is greater than zero.
+
+The source and destination ranges must not overlap. This operation has memcpy
+semantics rather than memmove semantics.
+
+When byte_count is zero, the operation performs no work and dest/src may be
+NULL.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is active, calls originating outside the memory
+debugger are redirected through nexus_debug_mem_bytes_copy. The debugger then:
+- validates source and destination ranges where possible;
+- records source provenance through __FILE__ and __LINE__;
+- emits a memory-debug logging event when a callback is installed.
+
+The memory-debugger implementation itself bypasses this redirection to prevent
+recursive entry and uses the direct implementation below.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+
+#  define nexus_memory_bytes_copy(dest, src, byte_count) nexus_debug_mem_bytes_copy((dest), (src), (byte_count), __FILE__, __LINE__)
+
+#else
+
+static void nexus_memory_bytes_copy(void *dest, const void *src, uint_large byte_count) /* NOLINT */ {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+  NEXUS_ASSERT_DEBUG(src != NULL);
+
+  memcpy(dest, src, (size_t)byte_count);
+}
+
+#endif
+
+/*
+nexus_memory_bytes_set writes byte into each of byte_count consecutive bytes
+beginning at dest.
+
+dest must point to a valid writable range containing at least byte_count bytes
+when byte_count is greater than zero.
+
+When byte_count is zero, the operation performs no work and dest may be NULL.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is active, calls originating outside the memory
+debugger are redirected through nexus_debug_mem_bytes_set. The debugger then:
+- validates the destination range where possible;
+- records source provenance through __FILE__ and __LINE__;
+- emits a memory-debug logging event when a callback is installed.
+
+The memory-debugger implementation itself bypasses this redirection to prevent
+recursive entry.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+
+#  define nexus_memory_bytes_set(dest, byte, byte_count) nexus_debug_mem_bytes_set((dest), (byte), (byte_count), __FILE__, __LINE__)
+
+#else
+
+static void nexus_memory_bytes_set(void *dest, uint8 byte, uint_large byte_count) /* NOLINT */ {
+  if (byte_count == 0) {
+    return;
+  }
+
+  NEXUS_ASSERT_DEBUG(dest != NULL);
+
+  memset(dest, (int)byte, (size_t)byte_count);
+}
+
+#endif
+
+/*
+nexus_memory_bytes_clear writes zero into each of byte_count consecutive bytes
+beginning at dest.
+
+This is equivalent to:
+
+  nexus_memory_bytes_set(dest, 0, byte_count)
+
+but expresses the semantic intent of clearing or zero-initializing storage.
+
+dest must point to a valid writable range containing at least byte_count bytes
+when byte_count is greater than zero.
+
+When byte_count is zero, the operation performs no work and dest may be NULL.
+
+When NEXUS_MEMORY_DEBUG_ENABLED is active, calls originating outside the memory
+debugger are redirected through nexus_debug_mem_bytes_clear so range validation,
+source provenance, and memory-debug logging remain available.
+*/
+#if NEXUS_MEMORY_DEBUG_ENABLED && !defined(NEXUS_MEMORY_DEBUG_IMPLEMENTATION)
+
+#  define nexus_memory_bytes_clear(dest, byte_count) nexus_debug_mem_bytes_clear((dest), (byte_count), __FILE__, __LINE__)
+
+#else
+
+static void nexus_memory_bytes_clear(void *dest, uint_large byte_count) /* NOLINT */ {
+  nexus_memory_bytes_set(dest, 0, byte_count);
+}
+
+#endif
+
+/*
+nexus_memory_bytes_compare compares size bytes beginning at bytes_a and bytes_b.
+
+The comparison has memcmp semantics:
+
+- a value less than zero indicates that the first differing byte in bytes_a is
+  less than the corresponding byte in bytes_b;
+- zero indicates that both byte ranges are identical;
+- a value greater than zero indicates that the first differing byte in bytes_a
+  is greater than the corresponding byte in bytes_b.
+
+Both pointers must identify readable ranges containing at least size bytes when
+size is greater than zero.
+
+Unlike nexus_memory_bytes_copy/set/clear, this operation currently does not
+route through the memory debugger and therefore does not perform tracked-range
+validation or emit memory-debug logging.
+*/
+static int nexus_memory_bytes_compare(const void *bytes_a, const void *bytes_b, uint_large size) { /* NOLINT(clang-diagnostic-unused-function) */
+  return memcmp(bytes_a, bytes_b, (size_t)size);
+}
+
+/*
+NEXUS_FREE_IF_NOT_NULL frees ptr when ptr is not NULL.
+
+The macro exists primarily as a concise cleanup helper for optional allocations.
+
+When memory debugging is enabled, free resolves through the normal Nexus
+allocation redirection and the deallocation therefore remains tracked.
+
+The macro does not assign NULL back to ptr after freeing it.
+
+ptr should be a simple pointer expression. Because the expression may be
+evaluated more than once, expressions with side effects must not be supplied.
+*/
+#define NEXUS_FREE_IF_NOT_NULL(ptr)                                                                                                                  \
+  do {                                                                                                                                               \
+    if ((ptr) != NULL) {                                                                                                                             \
+      free((ptr));                                                                                                                                   \
+    }                                                                                                                                                \
+  } while (0)
+
+/* ---------------------------------------------------------------------------- */
 /* DEBUGGER-FRIENDLY PROCESS TERMINATION                                        */
 /* ---------------------------------------------------------------------------- */
 
