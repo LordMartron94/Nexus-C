@@ -3339,6 +3339,33 @@ nexus_process_id_get returns the current process identifier.
 */
 extern uint32 nexus_process_id_get(void);
 
+/*
+nexus_process_executable_resolve resolves an executable specification to an
+absolute filesystem path.
+
+When executable contains a path component, it is treated as an explicit path.
+Relative explicit paths are resolved against the current working directory.
+
+When executable contains only a file name, the platform executable search path
+is searched.
+
+On success, out_resolved_executable receives an absolute path to an executable
+file.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_INVALID_ARGUMENT when executable is empty or
+  out_resolved_executable is NULL.
+- NEXUS_ERROR_FILE_NOT_FOUND when no matching executable can be found.
+- NEXUS_ERROR_PERMISSION_DENIED when a matching POSIX file exists but is not
+  executable.
+- NEXUS_ERROR_CAPACITY when the resolved path exceeds Nexus path capacity.
+- another Nexus error when an underlying platform operation fails.
+
+The search uses the current process environment.
+*/
+extern NError nexus_process_executable_resolve(NexusPath executable, NexusPath *out_resolved_executable);
+
 /* ---------------------------------------------------------------------------- */
 /* THREADS                                                                      */
 /* ---------------------------------------------------------------------------- */

@@ -1,6 +1,8 @@
 #include "../nexus.h"
+#include "./n_internal.h"
 
 #if defined(NEXUS_PLATFORM_WINDOWS)
+#  define WIN32_LEAN_AND_MEAN
 #  include <process.h>
 #  include <windows.h>
 #elif defined(NEXUS_PLATFORM_POSIX)
@@ -10,6 +12,7 @@
 #  include <errno.h>
 #  include <signal.h>
 #  include <sys/socket.h>
+#  include <sys/stat.h>
 
 extern char **environ;
 #else
@@ -921,5 +924,323 @@ uint32 nexus_process_id_get(void) {
   return (uint32)GetCurrentProcessId();
 #else
   return (uint32)getpid();
+#endif
+}
+
+static boolean n_process_executable_has_path_component(NexusPath executable) {
+  const char *cursor;
+
+  cursor = executable.buffer;
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  if (cursor[0] != '\0' && cursor[1] == ':') {
+    return TRUE;
+  }
+
+  while (*cursor != '\0') {
+    if (*cursor == '/' || *cursor == '\\') {
+      return TRUE;
+    }
+
+    cursor++;
+  }
+#else
+  while (*cursor != '\0') {
+    if (*cursor == '/') {
+      return TRUE;
+    }
+
+    cursor++;
+  }
+#endif
+
+  return FALSE;
+}
+
+#if defined(NEXUS_PLATFORM_POSIX) || defined(NEXUS_PLATFORM_BSD)
+
+static NError n_process_posix_executable_validate(NexusPath executable) {
+  struct stat file_status;
+
+  for (;;) {
+    if (stat(executable.buffer, &file_status) == 0) {
+      break;
+    }
+
+    if (errno == EINTR) {
+      continue;
+    }
+
+    if (errno == ENOENT || errno == ENOTDIR) {
+      return NEXUS_ERROR_FILE_NOT_FOUND;
+    }
+
+    if (errno == EACCES) {
+      return NEXUS_ERROR_PERMISSION_DENIED;
+    }
+
+    return nexus_errors_from_errno();
+  }
+
+  if (S_ISREG(file_status.st_mode) == 0) {
+    return NEXUS_ERROR_FILE_NOT_FOUND;
+  }
+
+  for (;;) {
+    if (access(executable.buffer, X_OK) == 0) {
+      return NEXUS_ERROR_NONE;
+    }
+
+    if (errno == EINTR) {
+      continue;
+    }
+
+    if (errno == ENOENT || errno == ENOTDIR) {
+      return NEXUS_ERROR_FILE_NOT_FOUND;
+    }
+
+    if (errno == EACCES) {
+      return NEXUS_ERROR_PERMISSION_DENIED;
+    }
+
+    return nexus_errors_from_errno();
+  }
+}
+
+static NError n_process_posix_executable_search(NexusPath executable, NexusPath *out_resolved_executable) {
+  const char *path_environment;
+  const char *component_begin;
+  const char *component_end;
+
+  NexusPath candidate;
+
+  char candidate_buffer[NEXUS_MAX_PATH_LENGTH];
+
+  uint_large executable_length;
+  uint_large component_length;
+  uint_large candidate_length;
+  uint_large offset;
+
+  boolean permission_denied;
+
+  NError error;
+
+  path_environment = getenv("PATH");
+
+  if (path_environment == NULL) {
+    return NEXUS_ERROR_FILE_NOT_FOUND;
+  }
+
+  executable_length = nexus_strings_string_length(executable.buffer);
+  permission_denied = FALSE;
+
+  component_begin = path_environment;
+
+  for (;;) {
+    component_end = component_begin;
+
+    while (*component_end != '\0' && *component_end != ':') {
+      component_end++;
+    }
+
+    component_length = (uint_large)(component_end - component_begin);
+
+    /*
+    An empty PATH component represents the current working directory.
+    */
+    if (component_length == 0) {
+      candidate_length = 1U + 1U + executable_length;
+
+      if (candidate_length + 1U <= NEXUS_SIZEOF(candidate_buffer)) {
+        candidate_buffer[0] = '.';
+        candidate_buffer[1] = '/';
+
+        nexus_memory_bytes_copy(candidate_buffer + 2, executable.buffer, executable_length);
+
+        candidate_buffer[candidate_length] = '\0';
+
+        candidate = nexus_paths_path_create(candidate_buffer);
+
+        error = n_process_posix_executable_validate(candidate);
+
+        if (error == NEXUS_ERROR_NONE) {
+          *out_resolved_executable = nexus_paths_path_relative_to_absolute(candidate);
+          return NEXUS_ERROR_NONE;
+        }
+
+        if (error == NEXUS_ERROR_PERMISSION_DENIED) {
+          permission_denied = TRUE;
+        } else if (error != NEXUS_ERROR_FILE_NOT_FOUND) {
+          return error;
+        }
+      }
+    } else {
+      candidate_length = component_length;
+
+      if (component_begin[component_length - 1U] != '/') {
+        candidate_length++;
+      }
+
+      if (UINT_LARGE_MAX_VAL - candidate_length < executable_length) {
+        return NEXUS_ERROR_CAPACITY;
+      }
+
+      candidate_length += executable_length;
+
+      if (candidate_length + 1U <= NEXUS_SIZEOF(candidate_buffer)) {
+        offset = 0;
+
+        nexus_memory_bytes_copy(candidate_buffer, component_begin, component_length);
+        offset += component_length;
+
+        if (candidate_buffer[offset - 1U] != '/') {
+          candidate_buffer[offset] = '/';
+          offset++;
+        }
+
+        nexus_memory_bytes_copy(candidate_buffer + offset, executable.buffer, executable_length);
+        offset += executable_length;
+
+        candidate_buffer[offset] = '\0';
+
+        candidate = nexus_paths_path_create(candidate_buffer);
+
+        error = n_process_posix_executable_validate(candidate);
+
+        if (error == NEXUS_ERROR_NONE) {
+          *out_resolved_executable = nexus_paths_path_relative_to_absolute(candidate);
+          return NEXUS_ERROR_NONE;
+        }
+
+        if (error == NEXUS_ERROR_PERMISSION_DENIED) {
+          permission_denied = TRUE;
+        } else if (error != NEXUS_ERROR_FILE_NOT_FOUND) {
+          return error;
+        }
+      }
+    }
+
+    if (*component_end == '\0') {
+      break;
+    }
+
+    component_begin = component_end + 1;
+  }
+
+  if (permission_denied != FALSE) {
+    return NEXUS_ERROR_PERMISSION_DENIED;
+  }
+
+  return NEXUS_ERROR_FILE_NOT_FOUND;
+}
+
+#endif
+
+NError nexus_process_executable_resolve(NexusPath executable, NexusPath *out_resolved_executable) {
+  NexusPath resolved;
+
+  NError error;
+
+  NEXUS_ASSERT_DEBUG(executable.buffer[0] != '\0');
+  NEXUS_ASSERT_DEBUG(out_resolved_executable != NULL);
+
+  if (executable.buffer[0] == '\0' || out_resolved_executable == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  nexus_memory_bytes_clear(out_resolved_executable, NEXUS_SIZEOF(*out_resolved_executable));
+
+  if (n_process_executable_has_path_component(executable) != FALSE) {
+    resolved = nexus_paths_path_relative_to_absolute(executable);
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+    {
+      DWORD attributes;
+
+      attributes = GetFileAttributesA(resolved.buffer);
+
+      if (attributes == INVALID_FILE_ATTRIBUTES) {
+        DWORD windows_error;
+
+        windows_error = GetLastError();
+
+        if (windows_error == ERROR_FILE_NOT_FOUND || windows_error == ERROR_PATH_NOT_FOUND) {
+          return NEXUS_ERROR_FILE_NOT_FOUND;
+        }
+
+        if (windows_error == ERROR_ACCESS_DENIED) {
+          return NEXUS_ERROR_PERMISSION_DENIED;
+        }
+
+        return NEXUS_ERROR_IO;
+      }
+
+      if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        return NEXUS_ERROR_FILE_NOT_FOUND;
+      }
+    }
+#else
+    error = n_process_posix_executable_validate(resolved);
+
+    if (error != NEXUS_ERROR_NONE) {
+      return error;
+    }
+#endif
+
+    *out_resolved_executable = resolved;
+
+    return NEXUS_ERROR_NONE;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  {
+    char  resolved_buffer[NEXUS_MAX_PATH_LENGTH];
+    DWORD resolved_length;
+
+    resolved_length = SearchPathA(NULL, executable.buffer, ".exe", (DWORD)NEXUS_SIZEOF(resolved_buffer), resolved_buffer, NULL);
+
+    if (resolved_length == 0) {
+      DWORD windows_error;
+
+      windows_error = GetLastError();
+
+      if (windows_error == ERROR_FILE_NOT_FOUND || windows_error == ERROR_PATH_NOT_FOUND) {
+        return NEXUS_ERROR_FILE_NOT_FOUND;
+      }
+
+      if (windows_error == ERROR_ACCESS_DENIED) {
+        return NEXUS_ERROR_PERMISSION_DENIED;
+      }
+
+      return NEXUS_ERROR_IO;
+    }
+
+    if (resolved_length >= (DWORD)NEXUS_SIZEOF(resolved_buffer)) {
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    resolved = nexus_paths_path_create(resolved_buffer);
+
+    /*
+    SearchPath normally returns a fully qualified path, but normalize through
+    Nexus so the API guarantees an absolute result.
+    */
+    resolved = nexus_paths_path_relative_to_absolute(resolved);
+
+    *out_resolved_executable = resolved;
+
+    return NEXUS_ERROR_NONE;
+  }
+
+#elif defined(NEXUS_PLATFORM_POSIX) || defined(NEXUS_PLATFORM_BSD)
+
+  return n_process_posix_executable_search(executable, out_resolved_executable);
+
+#else
+
+  (void)error;
+
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+
 #endif
 }
