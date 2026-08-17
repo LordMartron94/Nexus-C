@@ -3793,6 +3793,112 @@ extern void   *nexus_threads_atomic_pointer_swap(NexusAtomicPointer *atomic, voi
 extern boolean nexus_threads_atomic_pointer_compare_exchange(NexusAtomicPointer *atomic, void *old_value, void *new_value);
 
 /* ---------------------------------------------------------------------------- */
+/* ASYNC EVENT MULTIPLEXER                                                      */
+/* ---------------------------------------------------------------------------- */
+
+typedef struct NexusAsyncPoller NexusAsyncPoller;
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+typedef UINT_PTR NexusNativeHandle;
+#else
+typedef int NexusNativeHandle;
+#endif
+
+typedef enum NexusAsyncInterest {
+    NEXUS_ASYNC_INTEREST_READ  = 1U << 0,
+    NEXUS_ASYNC_INTEREST_WRITE = 1U << 1,
+    NEXUS_ASYNC_INTEREST_ERROR = 1U << 2,
+    NEXUS_ASYNC_INTEREST_EDGE  = 1U << 3
+} NexusAsyncInterest;
+
+typedef struct NexusAsyncEvent {
+    NexusNativeHandle handle;
+    uint32            events; /* Bitmask of NexusAsyncInterest */
+    void             *user_data;
+} NexusAsyncEvent;
+
+/*
+nexus_async_set_nonblocking toggles non-blocking I/O mode on an OS socket descriptor.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the underlying OS control operation fails.
+*/
+extern NError nexus_async_set_nonblocking(NexusNativeHandle handle, boolean non_blocking);
+
+/*
+nexus_async_poller_create allocates and initializes an OS event demultiplexer
+(epoll on Linux, kqueue on macOS/BSD, WSAPoll on Windows).
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+- NEXUS_ERROR_IO if OS poller initialization fails.
+- NEXUS_ERROR_INVALID_ARGUMENT if out_poller is NULL.
+
+Contract: out_poller must not be NULL (asserted).
+*/
+extern NError nexus_async_poller_create(NexusAsyncPoller **out_poller);
+
+/*
+nexus_async_poller_add registers a file descriptor with the poller for readiness monitoring.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the registration fails or handle is already registered.
+- NEXUS_ERROR_INVALID_ARGUMENT if poller is NULL or interests is 0.
+
+Contract: poller must not be NULL and interests must not be 0 (asserted).
+*/
+extern NError nexus_async_poller_add(NexusAsyncPoller *poller, NexusNativeHandle handle, uint32 interests, void *user_data);
+
+/*
+nexus_async_poller_modify updates the monitored event interests and user context for a handle.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if the handle is not registered with the poller.
+- NEXUS_ERROR_INVALID_ARGUMENT if poller is NULL or interests is 0.
+
+Contract: poller must not be NULL and interests must not be 0 (asserted).
+*/
+extern NError nexus_async_poller_modify(NexusAsyncPoller *poller, NexusNativeHandle handle, uint32 interests, void *user_data);
+
+/*
+nexus_async_poller_remove unregisters a file descriptor from the poller.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_IO if unregistering fails or handle is not registered.
+- NEXUS_ERROR_INVALID_ARGUMENT if poller is NULL.
+
+Contract: poller must not be NULL (asserted).
+*/
+extern NError nexus_async_poller_remove(NexusAsyncPoller *poller, NexusNativeHandle handle);
+
+/*
+nexus_async_poller_wait blocks up to duration waiting for active readiness events.
+
+Passing a duration of zero or less performs a non-blocking poll.
+Passing duration with nanoseconds set to -1 blocks indefinitely.
+
+Returns:
+- NEXUS_ERROR_NONE on success (out_event_count contains the number of fired events).
+- NEXUS_ERROR_IO if polling fails at OS level.
+- NEXUS_ERROR_INVALID_ARGUMENT if poller, out_events, or out_event_count is NULL.
+
+Contract: poller, out_events, and out_event_count must not be NULL (asserted).
+*/
+extern NError nexus_async_poller_wait(NexusAsyncPoller *poller, NexusAsyncEvent *out_events, uint32 max_events, NexusDuration duration, uint32 *out_event_count);
+
+/*
+nexus_async_poller_destroy releases all OS handles and memory associated with the poller.
+
+Contract: poller must not be NULL (asserted).
+*/
+extern void nexus_async_poller_destroy(NexusAsyncPoller *poller);
+
+/* ---------------------------------------------------------------------------- */
 /* FILESYSTEM                                                                   */
 /* ---------------------------------------------------------------------------- */
 
