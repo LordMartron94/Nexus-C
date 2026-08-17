@@ -3243,6 +3243,81 @@ extern void nexus_signals_received_clear(NexusSignal signal);
 /* ---------------------------------------------------------------------------- */
 
 /*
+NexusProcessSpawnResult reports the exit status of a spawned child process.
+*/
+typedef struct NexusProcessSpawnResult {
+  int32 exit_code;
+} NexusProcessSpawnResult;
+
+/*
+NexusProcess is an owned handle for a live or completed child process created by
+nexus_process_spawn_piped.
+
+The child receives a pipe/socket as stdin and stdout. stderr remains inherited
+from the parent. This is intended for long-lived worker/RPC processes where
+nexus_process_spawn_wait is insufficient.
+*/
+typedef struct NexusProcess NexusProcess;
+
+/*
+Starts executable_path without waiting for it to exit.
+
+argv and environment have the same semantics as nexus_process_spawn_wait.
+stdin/stdout are connected to the parent through the functions below; stderr is
+inherited.
+
+On success, *out_process owns all child/process and I/O handles.
+*/
+extern NError nexus_process_spawn_piped(NexusPath executable_path, char *const *argv, char *const *environment, NexusProcess **out_process);
+
+/*
+Writes the complete byte buffer to the child's stdin, blocking as necessary.
+Returns NEXUS_ERROR_IO if the pipe is closed or the child can no longer accept
+input.
+*/
+extern NError nexus_process_stdin_write(NexusProcess *process, const byte *bytes, uint_large byte_count);
+
+/*
+Closes the parent's write side of the child's stdin. Safe to call more than once.
+*/
+extern NError nexus_process_stdin_close(NexusProcess *process);
+
+/*
+Reads up to byte_count bytes from the child's stdout.
+
+out_bytes_read receives the amount read. out_reached_eof is TRUE only when the
+child stdout pipe has reached EOF. A successful read may return fewer bytes than
+requested.
+*/
+extern NError nexus_process_stdout_read(NexusProcess *process, byte *buffer, uint_large byte_count, uint_large *out_bytes_read,
+                                        boolean *out_reached_eof);
+
+/*
+Returns TRUE while the child has not yet exited. This is a snapshot.
+*/
+extern boolean nexus_process_running_get(NexusProcess *process);
+
+/*
+Waits for the child to terminate and stores its exit code in result.
+Safe after nexus_process_running_get has observed completion.
+*/
+extern NError nexus_process_wait(NexusProcess *process, NexusProcessSpawnResult *result);
+
+/*
+Requests immediate child termination. This is a fallback teardown operation;
+cooperative protocols should ask the child to exit normally first.
+*/
+extern NError nexus_process_terminate(NexusProcess *process);
+
+/*
+Releases the process and pipe handles.
+
+If the child is still running, Nexus terminates and reaps it first so destroying
+this object cannot orphan a child process.
+*/
+extern void nexus_process_destroy(NexusProcess *process);
+
+/*
 nexus_process_replace replaces the current process image with executable_path.
 
 argv must be a NULL-terminated array whose first element is the executable path.
@@ -3250,13 +3325,6 @@ When environment is NULL, the current process environment is inherited.
 This function does not return on success.
 */
 extern NError nexus_process_replace(NexusPath executable_path, char *const *argv, char *const *environment);
-
-/*
-NexusProcessSpawnResult reports the exit status of a spawned child process.
-*/
-typedef struct NexusProcessSpawnResult {
-  int32 exit_code;
-} NexusProcessSpawnResult;
 
 /*
 nexus_process_spawn_wait starts executable_path in a child process and waits for completion.
@@ -3805,16 +3873,16 @@ typedef int NexusNativeHandle;
 #endif
 
 typedef enum NexusAsyncInterest {
-    NEXUS_ASYNC_INTEREST_READ  = 1U << 0,
-    NEXUS_ASYNC_INTEREST_WRITE = 1U << 1,
-    NEXUS_ASYNC_INTEREST_ERROR = 1U << 2,
-    NEXUS_ASYNC_INTEREST_EDGE  = 1U << 3
+  NEXUS_ASYNC_INTEREST_READ  = 1U << 0,
+  NEXUS_ASYNC_INTEREST_WRITE = 1U << 1,
+  NEXUS_ASYNC_INTEREST_ERROR = 1U << 2,
+  NEXUS_ASYNC_INTEREST_EDGE  = 1U << 3
 } NexusAsyncInterest;
 
 typedef struct NexusAsyncEvent {
-    NexusNativeHandle handle;
-    uint32            events; /* Bitmask of NexusAsyncInterest */
-    void             *user_data;
+  NexusNativeHandle handle;
+  uint32            events; /* Bitmask of NexusAsyncInterest */
+  void             *user_data;
 } NexusAsyncEvent;
 
 /*
@@ -3889,7 +3957,8 @@ Returns:
 
 Contract: poller, out_events, and out_event_count must not be NULL (asserted).
 */
-extern NError nexus_async_poller_wait(NexusAsyncPoller *poller, NexusAsyncEvent *out_events, uint32 max_events, NexusDuration duration, uint32 *out_event_count);
+extern NError nexus_async_poller_wait(NexusAsyncPoller *poller, NexusAsyncEvent *out_events, uint32 max_events, NexusDuration duration,
+                                      uint32 *out_event_count);
 
 /*
 nexus_async_poller_destroy releases all OS handles and memory associated with the poller.
