@@ -5360,7 +5360,8 @@ extern void    nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *
 extern boolean nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void *out_value);
 extern boolean nexus_data_hashmap_get_keys_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count);
 extern boolean nexus_data_hashmap_get_values_allocated(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count);
-extern boolean nexus_data_hashmap_get_entries_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer, uint_large *out_count);
+extern boolean nexus_data_hashmap_get_entries_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer,
+                                                        uint_large *out_count);
 extern boolean nexus_data_hashmap_delete(NexusHashMap *hashmap_handle, const void *key);
 
 typedef struct {
@@ -5371,3 +5372,18 @@ typedef struct {
 
 extern void    nexus_data_hashmap_enumerator_init(NexusHashMapEnumerator *enumerator);
 extern boolean nexus_data_hashmap_enumerator_next(NexusHashMapEnumerator *enumerator, void **out_key, void **out_value);
+
+/*
+nexus_data_array_reserve ensures array has storage for required_count elements.
+
+array points to the caller's allocation pointer.
+capacity points to the caller's current element capacity.
+element_size is the size of one element.
+
+The initial allocation capacity is 4 elements and subsequent growth doubles.
+When *array is NULL, malloc is used. realloc is only used for an existing
+allocation.
+
+Returns TRUE when sufficient capacity exists after the call.
+*/
+extern boolean nexus_data_array_reserve(void **array, uint32 *capacity, uint32 required_count, uint_large element_size);

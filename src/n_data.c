@@ -681,3 +681,50 @@ boolean nexus_data_hashmap_get_entries_allocated(NexusHashMap *hashmap_handle, v
   nexus_data_hashmap_collect(hashmap, TRUE, TRUE, out_keys_buffer, out_values_buffer, out_count);
   return (boolean)(*out_count >= 1);
 }
+
+boolean nexus_data_array_reserve(void **array, uint32 *capacity, uint32 required_count, uint_large element_size) {
+  void  *resized;
+  uint32 new_capacity;
+
+  NEXUS_ASSERT_DEBUG(array != NULL);
+  NEXUS_ASSERT_DEBUG(capacity != NULL);
+  NEXUS_ASSERT_DEBUG(element_size > 0U);
+
+  if (array == NULL || capacity == NULL || element_size == 0U) {
+    return FALSE;
+  }
+
+  if (required_count <= *capacity) {
+    return TRUE;
+  }
+
+  new_capacity = *capacity == 0U ? 4U : *capacity;
+
+  while (new_capacity < required_count) {
+    if (new_capacity > UINT32_MAX_VAL / 2U) {
+      new_capacity = required_count;
+      break;
+    }
+
+    new_capacity *= 2U;
+  }
+
+  if ((uint_large)new_capacity > UINT_LARGE_MAX_VAL / element_size) {
+    return FALSE;
+  }
+
+  if (*array == NULL) {
+    resized = malloc((uint_large)new_capacity * element_size);
+  } else {
+    resized = realloc(*array, (uint_large)new_capacity * element_size);
+  }
+
+  if (resized == NULL) {
+    return FALSE;
+  }
+
+  *array    = resized;
+  *capacity = new_capacity;
+
+  return TRUE;
+}
