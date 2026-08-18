@@ -641,7 +641,7 @@ boolean nexus_data_hashmap_enumerator_next(NexusHashMapEnumerator *enumerator, v
 /* HASH MAP COLLECTION                                                        */
 /* -------------------------------------------------------------------------- */
 
-boolean nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void *out_keys_buffer, uint_large *out_count) {
+boolean nexus_data_hashmap_get_keys_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count) {
   HashMap *hashmap;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
@@ -650,11 +650,11 @@ boolean nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void *out_keys
 
   hashmap = (HashMap *)hashmap_handle;
 
-  nexus_data_hashmap_collect(hashmap, TRUE, FALSE, &out_keys_buffer, NULL, out_count);
+  nexus_data_hashmap_collect(hashmap, TRUE, FALSE, out_keys_buffer, NULL, out_count);
   return (boolean)(*out_count >= 1);
 }
 
-boolean nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void *out_values_buffer, uint_large *out_count) {
+boolean nexus_data_hashmap_get_values_allocated(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count) {
   HashMap *hashmap;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
@@ -663,11 +663,12 @@ boolean nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void *out_va
 
   hashmap = (HashMap *)hashmap_handle;
 
-  nexus_data_hashmap_collect(hashmap, FALSE, TRUE, NULL, &out_values_buffer, out_count);
+  nexus_data_hashmap_collect(hashmap, FALSE, TRUE, NULL, out_values_buffer, out_count);
   return (boolean)(*out_count >= 1);
 }
 
-boolean nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void *out_keys_buffer, void *out_values_buffer, uint_large *out_count) {
+boolean nexus_data_hashmap_get_entries_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer,
+                                                 uint_large *out_count) {
   HashMap *hashmap;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
@@ -677,6 +678,6 @@ boolean nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void *out_k
 
   hashmap = (HashMap *)hashmap_handle;
 
-  nexus_data_hashmap_collect(hashmap, TRUE, TRUE, &out_keys_buffer, &out_values_buffer, out_count);
+  nexus_data_hashmap_collect(hashmap, TRUE, TRUE, out_keys_buffer, out_values_buffer, out_count);
   return (boolean)(*out_count >= 1);
 }

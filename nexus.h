@@ -5350,9 +5350,9 @@ extern void          nexus_data_hashmap_destroy(NexusHashMap *hashmap);
 
 extern void    nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const void *value);
 extern boolean nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void *out_value);
-extern boolean nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void *out_keys_buffer, uint_large *out_count);
-extern boolean nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void *out_values_buffer, uint_large *out_count);
-extern boolean nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void *out_keys_buffer, void *out_values_buffer, uint_large *out_count);
+extern boolean nexus_data_hashmap_get_keys_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count);
+extern boolean nexus_data_hashmap_get_values_allocated(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count);
+extern boolean nexus_data_hashmap_get_entries_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer, uint_large *out_count);
 extern boolean nexus_data_hashmap_delete(NexusHashMap *hashmap_handle, const void *key);
 
 typedef struct {
