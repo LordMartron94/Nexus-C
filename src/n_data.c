@@ -565,24 +565,24 @@ void nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const
   nexus_data_hashmap_write_without_resize(hashmap, key, value);
 }
 
-void nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void **out_value) {
+boolean nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void *out_value) {
   HashMap     *hashmap;
   HashMapProbe probe;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
   NEXUS_ASSERT_DEBUG(key != NULL);
   NEXUS_ASSERT_DEBUG(out_value != NULL);
-  NEXUS_ASSERT_DEBUG(*out_value != NULL);
 
   hashmap = (HashMap *)hashmap_handle;
 
   probe = nexus_data_hashmap_probe(hashmap, key);
 
   if (probe.found == FALSE) {
-    return;
+    return FALSE;
   }
 
-  nexus_memory_bytes_copy(*out_value, nexus_data_hashmap_slot_value_get(hashmap, probe.group_idx, probe.slot_idx), hashmap->value_size_bytes);
+  nexus_memory_bytes_copy(out_value, nexus_data_hashmap_slot_value_get(hashmap, probe.group_idx, probe.slot_idx), hashmap->value_size_bytes);
+  return TRUE;
 }
 
 boolean nexus_data_hashmap_delete(NexusHashMap *hashmap_handle, const void *key) {
@@ -641,7 +641,7 @@ boolean nexus_data_hashmap_enumerator_next(NexusHashMapEnumerator *enumerator, v
 /* HASH MAP COLLECTION                                                        */
 /* -------------------------------------------------------------------------- */
 
-void nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count) {
+boolean nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void *out_keys_buffer, uint_large *out_count) {
   HashMap *hashmap;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
@@ -650,10 +650,11 @@ void nexus_data_hashmap_get_keys(NexusHashMap *hashmap_handle, void **out_keys_b
 
   hashmap = (HashMap *)hashmap_handle;
 
-  nexus_data_hashmap_collect(hashmap, TRUE, FALSE, out_keys_buffer, NULL, out_count);
+  nexus_data_hashmap_collect(hashmap, TRUE, FALSE, &out_keys_buffer, NULL, out_count);
+  return (boolean)(*out_count >= 1);
 }
 
-void nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count) {
+boolean nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void *out_values_buffer, uint_large *out_count) {
   HashMap *hashmap;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
@@ -662,10 +663,11 @@ void nexus_data_hashmap_get_values(NexusHashMap *hashmap_handle, void **out_valu
 
   hashmap = (HashMap *)hashmap_handle;
 
-  nexus_data_hashmap_collect(hashmap, FALSE, TRUE, NULL, out_values_buffer, out_count);
+  nexus_data_hashmap_collect(hashmap, FALSE, TRUE, NULL, &out_values_buffer, out_count);
+  return (boolean)(*out_count >= 1);
 }
 
-void nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer, uint_large *out_count) {
+boolean nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void *out_keys_buffer, void *out_values_buffer, uint_large *out_count) {
   HashMap *hashmap;
 
   NEXUS_ASSERT_DEBUG(hashmap_handle != NULL);
@@ -675,5 +677,6 @@ void nexus_data_hashmap_get_entries(NexusHashMap *hashmap_handle, void **out_key
 
   hashmap = (HashMap *)hashmap_handle;
 
-  nexus_data_hashmap_collect(hashmap, TRUE, TRUE, out_keys_buffer, out_values_buffer, out_count);
+  nexus_data_hashmap_collect(hashmap, TRUE, TRUE, &out_keys_buffer, &out_values_buffer, out_count);
+  return (boolean)(*out_count >= 1);
 }
