@@ -1288,3 +1288,28 @@ int nexus_strings_string_compare_length(const char *string_a, const char *string
 
   return 0;
 }
+
+char *nexus_strings_string_duplicate(const char *string) {
+  char      *copy;
+  uint_large length;
+
+  if (string == NULL) {
+    return NULL;
+  }
+
+  length = nexus_strings_string_length(string);
+
+  if (length == UINT_LARGE_MAX_VAL) {
+    return NULL;
+  }
+
+  copy = (char *)malloc(length + 1U);
+
+  if (copy == NULL) {
+    return NULL;
+  }
+
+  nexus_strings_string_copy(copy, length + 1U, string);
+
+  return copy;
+}

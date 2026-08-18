@@ -2712,6 +2712,14 @@ static boolean nexus_strings_string_equals_mixed_alt(const char *str1, const uns
   return nexus_strings_string_compare_mixed_alt(str1, str2) == 0;
 }
 
+/*
+nexus_strings_string_duplicate allocates and returns an owned copy of string.
+
+Returns NULL when string is NULL or allocation fails.
+The returned allocation must be released with free.
+*/
+extern char *nexus_strings_string_duplicate(const char *string);
+
 /* ---------------------------------------------------------------------------- */
 /* TABULAR                                                                      */
 /* ---------------------------------------------------------------------------- */
