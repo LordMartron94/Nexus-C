@@ -507,6 +507,9 @@ NexusStringFormatResult nexus_strings_string_writer_string_append(NexusStringWri
 
   NEXUS_ASSERT_DEBUG(writer != NULL);
   NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(writer->buffer != NULL);
+  NEXUS_ASSERT_DEBUG(writer->capacity != 0);
+  NEXUS_ASSERT_DEBUG(writer->length < writer->capacity);
 
   remaining_capacity = writer->capacity - writer->length;
   result             = nexus_strings_string_copy_with_truncation(writer->buffer + writer->length, remaining_capacity, string);
@@ -526,6 +529,9 @@ NexusStringFormatResult nexus_strings_string_writer_vformat_append(NexusStringWr
 
   NEXUS_ASSERT_DEBUG(writer != NULL);
   NEXUS_ASSERT_DEBUG(format != NULL);
+  NEXUS_ASSERT_DEBUG(writer->buffer != NULL);
+  NEXUS_ASSERT_DEBUG(writer->capacity != 0);
+  NEXUS_ASSERT_DEBUG(writer->length < writer->capacity);
 
   remaining_capacity = writer->capacity - writer->length;
   result             = nexus_strings_vstring_format_with_truncation(writer->buffer + writer->length, remaining_capacity, format, args);
