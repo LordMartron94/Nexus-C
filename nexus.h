@@ -2218,6 +2218,19 @@ typedef struct NexusStringFormatResult {
 } NexusStringFormatResult;
 
 /*
+NexusStringWriter incrementally builds one null-terminated caller buffer.
+
+The writer never allocates. truncated becomes TRUE after any append does not
+fully fit; later appends remain safe and preserve null termination.
+*/
+typedef struct NexusStringWriter {
+  char      *buffer;
+  uint_large capacity;
+  uint_large length;
+  boolean    truncated;
+} NexusStringWriter;
+
+/*
 nexus_strings_string_format formats a string with a `max_string_length`
 
 If the formatted string would be more than the `max_string_length`, this implementation does not write
@@ -2390,6 +2403,25 @@ and truncated=TRUE with success=TRUE is returned. Otherwise, success=TRUE with w
 equal to required_length.
 */
 extern NexusStringFormatResult nexus_strings_string_copy_with_truncation(char *dest, uint_large dest_max_len, const char *src);
+
+/*
+Initializes a writer over buffer, replacing its previous contents with an empty
+string. buffer_capacity must be nonzero.
+*/
+extern void nexus_strings_string_writer_initialize(NexusStringWriter *writer, char *buffer, uint_large buffer_capacity);
+
+/*
+Appends text or formatted text to a writer.
+
+The returned result describes the current append. Use truncated_get() to learn
+whether any append since initialization was truncated.
+*/
+extern NexusStringFormatResult nexus_strings_string_writer_string_append(NexusStringWriter *writer, const char *string);
+extern NexusStringFormatResult nexus_strings_string_writer_format_append(NexusStringWriter *writer, const char *format, ...);
+extern NexusStringFormatResult nexus_strings_string_writer_vformat_append(NexusStringWriter *writer, const char *format, va_list args);
+
+extern uint_large nexus_strings_string_writer_length_get(const NexusStringWriter *writer);
+extern boolean    nexus_strings_string_writer_truncated_get(const NexusStringWriter *writer);
 
 /*
 nexus_strings_string_parse_uint8 parses a base-10 unsigned integer string into out_value.

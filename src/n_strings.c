@@ -488,6 +488,80 @@ boolean nexus_strings_string_append(char *dest, uint_large dest_max_len, const c
   return copy_result.success == TRUE && copy_result.truncated == FALSE;
 }
 
+void nexus_strings_string_writer_initialize(NexusStringWriter *writer, char *buffer, uint_large buffer_capacity) {
+  NEXUS_ASSERT_DEBUG(writer != NULL);
+  NEXUS_ASSERT_DEBUG(buffer != NULL);
+  NEXUS_ASSERT_DEBUG(buffer_capacity != 0);
+
+  writer->buffer    = buffer;
+  writer->capacity  = buffer_capacity;
+  writer->length    = 0;
+  writer->truncated = FALSE;
+
+  (void)nexus_strings_string_copy_with_truncation(writer->buffer, writer->capacity, "");
+}
+
+NexusStringFormatResult nexus_strings_string_writer_string_append(NexusStringWriter *writer, const char *string) {
+  NexusStringFormatResult result;
+  uint_large              remaining_capacity;
+
+  NEXUS_ASSERT_DEBUG(writer != NULL);
+  NEXUS_ASSERT_DEBUG(string != NULL);
+
+  remaining_capacity = writer->capacity - writer->length;
+  result             = nexus_strings_string_copy_with_truncation(writer->buffer + writer->length, remaining_capacity, string);
+
+  writer->length += result.written_length;
+
+  if (result.truncated != FALSE) {
+    writer->truncated = TRUE;
+  }
+
+  return result;
+}
+
+NexusStringFormatResult nexus_strings_string_writer_vformat_append(NexusStringWriter *writer, const char *format, va_list args) {
+  NexusStringFormatResult result;
+  uint_large              remaining_capacity;
+
+  NEXUS_ASSERT_DEBUG(writer != NULL);
+  NEXUS_ASSERT_DEBUG(format != NULL);
+
+  remaining_capacity = writer->capacity - writer->length;
+  result             = nexus_strings_vstring_format_with_truncation(writer->buffer + writer->length, remaining_capacity, format, args);
+
+  writer->length += result.written_length;
+
+  if (result.truncated != FALSE) {
+    writer->truncated = TRUE;
+  }
+
+  return result;
+}
+
+NexusStringFormatResult nexus_strings_string_writer_format_append(NexusStringWriter *writer, const char *format, ...) {
+  NexusStringFormatResult result;
+  va_list                 args;
+
+  va_start(args, format);
+  result = nexus_strings_string_writer_vformat_append(writer, format, args);
+  va_end(args);
+
+  return result;
+}
+
+uint_large nexus_strings_string_writer_length_get(const NexusStringWriter *writer) {
+  NEXUS_ASSERT_DEBUG(writer != NULL);
+
+  return writer->length;
+}
+
+boolean nexus_strings_string_writer_truncated_get(const NexusStringWriter *writer) {
+  NEXUS_ASSERT_DEBUG(writer != NULL);
+
+  return writer->truncated;
+}
+
 NexusStringFormatResult nexus_strings_string_copy_exact(char *dest, uint_large dest_max_len, const char *src) {
   uint_large src_length;
 
