@@ -4,7 +4,6 @@
 #if defined(NEXUS_PLATFORM_WINDOWS)
 #  define WIN32_LEAN_AND_MEAN
 #  include <process.h>
-#  include <stdlib.h>
 #  include <windows.h>
 #elif defined(NEXUS_PLATFORM_POSIX)
 #  include <sys/types.h>
@@ -583,6 +582,7 @@ NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *c
     HANDLE                  child_write_handle;
     char                   *environment_block;
     char                    command_line[4096];
+    uint_large              channel_environment_value_capacity;
     NexusStringFormatResult format_result;
     NError                  error;
 
@@ -605,7 +605,8 @@ NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *c
       return NEXUS_ERROR_IO;
     }
 
-    channel_environment_value = (char *)malloc(2U * 2U * NEXUS_SIZEOF(uint_large) + 4U);
+    channel_environment_value_capacity = 6U * NEXUS_SIZEOF(uint_large) + 2U;
+    channel_environment_value          = (char *)malloc(channel_environment_value_capacity);
     if (channel_environment_value == NULL) {
       nexus_process_windows_handle_close(&child_read_handle);
       nexus_process_windows_handle_close(&child_write_handle);
@@ -614,7 +615,7 @@ NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *c
       return NEXUS_ERROR_CAPACITY;
     }
 
-    format_result = nexus_strings_string_format(channel_environment_value, 2U * 2U * NEXUS_SIZEOF(uint_large) + 4U, "%llu:%llu",
+    format_result = nexus_strings_string_format(channel_environment_value, channel_environment_value_capacity, "%llu:%llu",
                                                 (unsigned long long)(uintptr_t)child_read_handle, (unsigned long long)(uintptr_t)child_write_handle);
     if (format_result.success == FALSE || format_result.truncated != FALSE) {
       free(channel_environment_value);
@@ -673,6 +674,7 @@ NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *c
 #else
   {
     int                     channel_pair[2];
+    int                     descriptor_flags;
     pid_t                   child_process_id;
     NexusStringFormatResult format_result;
 
@@ -680,6 +682,15 @@ NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *c
     channel_pair[1] = -1;
 
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, channel_pair) != 0) {
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_IO;
+    }
+
+    descriptor_flags = fcntl(channel_pair[0], F_GETFD);
+    if (descriptor_flags < 0 || fcntl(channel_pair[0], F_SETFD, descriptor_flags | FD_CLOEXEC) < 0) {
+      nexus_process_posix_socket_close(&channel_pair[0]);
+      nexus_process_posix_socket_close(&channel_pair[1]);
       n_process_child_channel_destroy(channel);
       free(process);
       return NEXUS_ERROR_IO;

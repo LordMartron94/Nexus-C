@@ -3293,7 +3293,7 @@ typedef struct NexusProcessSpawnResult {
 
 /*
 NexusProcess is an owned handle for a live or completed child process created by
-nexus_process_spawn_piped.
+nexus_process_spawn_piped or nexus_process_spawn_with_child_channel.
 
 The child receives a pipe/socket as stdin and stdout. stderr remains inherited
 from the parent. This is intended for long-lived worker/RPC processes where
@@ -3340,7 +3340,7 @@ extern NError nexus_process_child_channel_read(NexusProcessChildChannel *channel
 /* Writes the complete byte buffer to channel, blocking as necessary. */
 extern NError nexus_process_child_channel_write(NexusProcessChildChannel *channel, const byte *bytes, uint_large byte_count);
 
-/* Closes both directions of channel. Safe to call more than once. */
+/* Closes both directions of channel and releases its owned memory. Accepts NULL. */
 extern void nexus_process_child_channel_destroy(NexusProcessChildChannel *channel);
 
 /*
