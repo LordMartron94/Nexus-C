@@ -765,8 +765,8 @@ NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *c
 }
 
 static NError n_process_child_channel_open_from_environment(const char *environment_name, NexusProcessChildChannel *channel) {
-  char                      channel_value[96];
-  NError                    error;
+  char   channel_value[96];
+  NError error;
 
   NEXUS_ASSERT_DEBUG(environment_name != NULL);
   NEXUS_ASSERT_DEBUG(channel != NULL);
@@ -775,7 +775,7 @@ static NError n_process_child_channel_open_from_environment(const char *environm
     return NEXUS_ERROR_INVALID_ARGUMENT;
   }
 
-  error        = nexus_environment_variable_get(environment_name, channel_value, NEXUS_SIZEOF(channel_value));
+  error = nexus_environment_variable_get(environment_name, channel_value, NEXUS_SIZEOF(channel_value));
   if (error != NEXUS_ERROR_NONE) {
     return error;
   }
@@ -806,6 +806,8 @@ static NError n_process_child_channel_open_from_environment(const char *environm
     channel->write_handle = (HANDLE)(uintptr_t)write_value;
     if (SetHandleInformation(channel->read_handle, HANDLE_FLAG_INHERIT, 0) == 0 ||
         SetHandleInformation(channel->write_handle, HANDLE_FLAG_INHERIT, 0) == 0) {
+      nexus_process_windows_handle_close(&channel->read_handle);
+      nexus_process_windows_handle_close(&channel->write_handle);
       return NEXUS_ERROR_IO;
     }
   }
@@ -822,6 +824,7 @@ static NError n_process_child_channel_open_from_environment(const char *environm
     channel->socket_handle = (int)descriptor_value;
     descriptor_flags       = fcntl(channel->socket_handle, F_GETFD);
     if (descriptor_flags < 0 || fcntl(channel->socket_handle, F_SETFD, descriptor_flags | FD_CLOEXEC) < 0) {
+      nexus_process_posix_socket_close(&channel->socket_handle);
       return NEXUS_ERROR_IO;
     }
   }
@@ -841,7 +844,7 @@ NError nexus_process_child_channel_open_from_environment(const char *environment
   }
 
   *out_channel = NULL;
-  channel = (NexusProcessChildChannel *)malloc(NEXUS_SIZEOF(*channel));
+  channel      = (NexusProcessChildChannel *)malloc(NEXUS_SIZEOF(*channel));
   if (channel == NULL) {
     return NEXUS_ERROR_CAPACITY;
   }
@@ -862,7 +865,7 @@ NError nexus_process_child_channel_open_from_environment(const char *environment
 }
 
 NError nexus_process_child_channel_open_from_environment_in_place(const char *environment_name, NexusProcessChildChannelStorage *storage,
-                                                                   NexusProcessChildChannel **out_channel) {
+                                                                  NexusProcessChildChannel **out_channel) {
   NexusProcessChildChannel *channel;
   NError                    error;
 

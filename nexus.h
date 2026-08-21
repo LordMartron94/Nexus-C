@@ -3295,9 +3295,9 @@ typedef struct NexusProcessSpawnResult {
 NexusProcess is an owned handle for a live or completed child process created by
 nexus_process_spawn_piped or nexus_process_spawn_with_child_channel.
 
-The child receives a pipe/socket as stdin and stdout. stderr remains inherited
-from the parent. This is intended for long-lived worker/RPC processes where
-nexus_process_spawn_wait is insufficient.
+For nexus_process_spawn_piped, the child receives a pipe/socket as stdin and
+stdout while stderr remains inherited. nexus_process_spawn_with_child_channel
+preserves all standard streams and provides its separate channel instead.
 */
 typedef struct NexusProcess NexusProcess;
 
