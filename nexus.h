@@ -3310,6 +3310,16 @@ nexus_process_child_channel_open_from_environment.
 typedef struct NexusProcessChildChannel NexusProcessChildChannel;
 
 /*
+NexusProcessChildChannelStorage permits a child to adopt one inherited channel
+without a heap allocation. It is intentionally opaque; callers must preserve
+the storage until nexus_process_child_channel_destroy has been called.
+*/
+typedef union NexusProcessChildChannelStorage {
+  uint_large native_values[4];
+  real64     alignment;
+} NexusProcessChildChannelStorage;
+
+/*
 Starts executable_path without redirecting its standard streams and creates a
 dedicated parent/child byte channel. Nexus adds child_channel_environment_name
 to the child environment so the child can adopt its endpoint after exec.
@@ -3329,6 +3339,13 @@ non-inheritable immediately so descendant processes do not keep the channel
 alive accidentally.
 */
 extern NError nexus_process_child_channel_open_from_environment(const char *environment_name, NexusProcessChildChannel **out_channel);
+
+/*
+Equivalent to nexus_process_child_channel_open_from_environment, but uses
+caller-owned storage instead of allocating the endpoint object.
+*/
+extern NError nexus_process_child_channel_open_from_environment_in_place(const char *environment_name, NexusProcessChildChannelStorage *storage,
+                                                                         NexusProcessChildChannel **out_channel);
 
 /*
 Reads up to byte_count bytes from channel. out_reached_eof is TRUE only when
