@@ -477,8 +477,8 @@ tied to the named constants instead of raw numeric literals.
 /*
 NexusErrorMessageFormatter returns a human-readable description for a facility-specific
 error code. Return a stable string (typically a string literal). Return NULL when the
-code is unknown so nexus_errors_message_write can fall back to the generic "Error XX-code"
-form.
+code is unknown so nexus_errors_message_write can fall back to the generic
+"Error XX-<decimal> (0x<hex>)" form.
 */
 typedef const char *NexusErrorMessageFormatter(uint16 code);
 
@@ -517,8 +517,10 @@ Writes an empty string when error is NEXUS_ERROR_NONE. buffer must not be NULL a
 buffer_max_length must be greater than zero.
 
 Known facilities (Nexus 'N' 'X', plus any registered via
-nexus_errors_message_formatter_register) produce descriptive messages. Unknown
-facilities or unknown codes within a registered facility fall back to "Error XX-code".
+nexus_errors_message_formatter_register) produce descriptive messages. Every
+non-success message includes its facility-local code in decimal and hexadecimal
+form. Unknown facilities or unknown codes within a registered facility fall
+back to "Error XX-<decimal> (0x<hex>)".
 */
 extern uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buffer_max_length, const char *prefix);
 

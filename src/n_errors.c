@@ -71,24 +71,36 @@ static NexusErrorMessageFormatter *n_internal_error_facility_formatter_lookup(ch
   return entry->formatter;
 }
 
-static uint_large n_internal_error_message_write_resolved(const char *message, char *buffer, uint_large buffer_max_length, const char *prefix,
-                                                          boolean use_prefix) {
+static uint_large n_internal_error_message_write_resolved(NError error, const char *message, char *buffer, uint_large buffer_max_length,
+                                                          const char *prefix, boolean use_prefix) {
+  uint16 local_id;
+
+  local_id = NEXUS_ERROR_LOCAL_ID(error);
+
   if (use_prefix) {
-    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "%s: %s", prefix, message);
+    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "%s: %s [%c%c-%u (0x%04X)]", prefix, message,
+                                                NEXUS_ERROR_FACILITY_BYTE_1(error), NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)local_id,
+                                                (unsigned int)local_id);
   } else {
-    nexus_strings_string_copy(buffer, buffer_max_length, message);
+    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "%s [%c%c-%u (0x%04X)]", message, NEXUS_ERROR_FACILITY_BYTE_1(error),
+                                                NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)local_id, (unsigned int)local_id);
   }
+
   return nexus_strings_string_length(buffer);
 }
 
 static uint_large n_internal_error_message_write_generic(NError error, char *buffer, uint_large buffer_max_length, const char *prefix,
                                                          boolean use_prefix) {
+  uint16 local_id;
+
+  local_id = NEXUS_ERROR_LOCAL_ID(error);
+
   if (use_prefix) {
-    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "%s: Error %c%c-%u", prefix, NEXUS_ERROR_FACILITY_BYTE_1(error),
-                                                NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)NEXUS_ERROR_CODE(error));
+    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "%s: Error %c%c-%u (0x%04X)", prefix, NEXUS_ERROR_FACILITY_BYTE_1(error),
+                                                NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)local_id, (unsigned int)local_id);
   } else {
-    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "Error %c%c-%u", NEXUS_ERROR_FACILITY_BYTE_1(error),
-                                                NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)NEXUS_ERROR_CODE(error));
+    nexus_strings_string_format_with_truncation(buffer, buffer_max_length, "Error %c%c-%u (0x%04X)", NEXUS_ERROR_FACILITY_BYTE_1(error),
+                                                NEXUS_ERROR_FACILITY_BYTE_2(error), (unsigned int)local_id, (unsigned int)local_id);
   }
   return nexus_strings_string_length(buffer);
 }
@@ -201,14 +213,14 @@ uint_large nexus_errors_message_write(NError error, char *buffer, uint_large buf
 
   if (n_internal_error_is_nexus(error)) {
     message = n_internal_nexus_error_message_for_code(NEXUS_ERROR_CODE(error));
-    return n_internal_error_message_write_resolved(message, buffer, buffer_max_length, prefix, use_prefix);
+    return n_internal_error_message_write_resolved(error, message, buffer, buffer_max_length, prefix, use_prefix);
   }
 
   formatter = n_internal_error_facility_formatter_lookup(NEXUS_ERROR_FACILITY_BYTE_1(error), NEXUS_ERROR_FACILITY_BYTE_2(error));
   if (formatter != NULL) {
     message = formatter(NEXUS_ERROR_CODE(error));
     if (message != NULL) {
-      return n_internal_error_message_write_resolved(message, buffer, buffer_max_length, prefix, use_prefix);
+      return n_internal_error_message_write_resolved(error, message, buffer, buffer_max_length, prefix, use_prefix);
     }
   }
 
