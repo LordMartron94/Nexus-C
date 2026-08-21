@@ -3302,6 +3302,48 @@ nexus_process_spawn_wait is insufficient.
 typedef struct NexusProcess NexusProcess;
 
 /*
+NexusProcessChildChannel is a dedicated bidirectional byte stream between a
+parent process and one directly launched child. The child endpoint is conveyed
+through a caller-selected environment variable and must be adopted with
+nexus_process_child_channel_open_from_environment.
+*/
+typedef struct NexusProcessChildChannel NexusProcessChildChannel;
+
+/*
+Starts executable_path without redirecting its standard streams and creates a
+dedicated parent/child byte channel. Nexus adds child_channel_environment_name
+to the child environment so the child can adopt its endpoint after exec.
+
+When environment is NULL, the current environment is inherited. Otherwise the
+provided environment is copied with any existing value for
+child_channel_environment_name replaced.
+*/
+extern NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *const *argv, char *const *environment,
+                                                     const char *child_channel_environment_name, NexusProcess **out_process,
+                                                     NexusProcessChildChannel **out_child_channel);
+
+/*
+Adopts this process' endpoint of a channel created by
+nexus_process_spawn_with_child_channel. The adopted endpoint is made
+non-inheritable immediately so descendant processes do not keep the channel
+alive accidentally.
+*/
+extern NError nexus_process_child_channel_open_from_environment(const char *environment_name, NexusProcessChildChannel **out_channel);
+
+/*
+Reads up to byte_count bytes from channel. out_reached_eof is TRUE only when
+the peer has closed its write direction.
+*/
+extern NError nexus_process_child_channel_read(NexusProcessChildChannel *channel, byte *buffer, uint_large byte_count, uint_large *out_bytes_read,
+                                               boolean *out_reached_eof);
+
+/* Writes the complete byte buffer to channel, blocking as necessary. */
+extern NError nexus_process_child_channel_write(NexusProcessChildChannel *channel, const byte *bytes, uint_large byte_count);
+
+/* Closes both directions of channel. Safe to call more than once. */
+extern void nexus_process_child_channel_destroy(NexusProcessChildChannel *channel);
+
+/*
 Starts executable_path without waiting for it to exit.
 
 argv and environment have the same semantics as nexus_process_spawn_wait.

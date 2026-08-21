@@ -4,6 +4,7 @@
 #if defined(NEXUS_PLATFORM_WINDOWS)
 #  define WIN32_LEAN_AND_MEAN
 #  include <process.h>
+#  include <stdlib.h>
 #  include <windows.h>
 #elif defined(NEXUS_PLATFORM_POSIX)
 #  include <sys/types.h>
@@ -13,6 +14,7 @@
 #  include <signal.h>
 #  include <sys/socket.h>
 #  include <sys/stat.h>
+#  include <fcntl.h>
 
 extern char **environ;
 #else
@@ -192,6 +194,113 @@ struct NexusProcess {
   int32   exit_code;
 };
 
+struct NexusProcessChildChannel {
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  HANDLE read_handle;
+  HANDLE write_handle;
+#else
+  int socket_handle;
+#endif
+};
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+extern char **_environ;
+#endif
+
+static char **n_process_environment_with_variable_create(char *const *environment, const char *name, const char *value) {
+  char *const *source_environment;
+  char       **result_environment;
+  char        *entry;
+  uint_large   name_length;
+  uint_large   value_length;
+  uint_large   entry_length;
+  uint_large   source_index;
+  uint_large   result_index;
+  uint_large   retained_count;
+
+  NEXUS_ASSERT_DEBUG(name != NULL);
+  NEXUS_ASSERT_DEBUG(value != NULL);
+
+  if (name == NULL || value == NULL || name[0] == '\0') {
+    return NULL;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  source_environment = environment != NULL ? environment : _environ;
+#else
+  source_environment = environment != NULL ? environment : environ;
+#endif
+
+  retained_count = 0;
+  for (source_index = 0; source_environment != NULL && source_environment[source_index] != NULL; source_index++) {
+    if (nexus_strings_string_starts_with(source_environment[source_index], name) == TRUE &&
+        source_environment[source_index][nexus_strings_string_length(name)] == '=') {
+      continue;
+    }
+    retained_count++;
+  }
+
+  if (retained_count > (UINT_LARGE_MAX_VAL / NEXUS_SIZEOF(*result_environment)) - 2U) {
+    return NULL;
+  }
+
+  result_environment = (char **)malloc(NEXUS_SIZEOF(*result_environment) * (retained_count + 2U));
+  if (result_environment == NULL) {
+    return NULL;
+  }
+
+  name_length  = nexus_strings_string_length(name);
+  value_length = nexus_strings_string_length(value);
+  if (name_length > UINT_LARGE_MAX_VAL - value_length - 2U) {
+    free((void *)result_environment);
+    return NULL;
+  }
+
+  entry_length = name_length + value_length + 2U;
+  entry        = (char *)malloc(entry_length);
+  if (entry == NULL) {
+    free((void *)result_environment);
+    return NULL;
+  }
+
+  nexus_memory_bytes_copy(entry, name, name_length);
+  entry[name_length] = '=';
+  nexus_memory_bytes_copy(entry + name_length + 1U, value, value_length);
+  entry[name_length + value_length + 1U] = '\0';
+
+  result_index = 0;
+  for (source_index = 0; source_environment != NULL && source_environment[source_index] != NULL; source_index++) {
+    if (nexus_strings_string_starts_with(source_environment[source_index], name) == TRUE && source_environment[source_index][name_length] == '=') {
+      continue;
+    }
+    result_environment[result_index] = source_environment[source_index];
+    result_index++;
+  }
+
+  result_environment[result_index] = entry;
+  result_index++;
+  result_environment[result_index] = NULL;
+
+  return result_environment;
+}
+
+static void n_process_environment_with_variable_destroy(char **environment) {
+  uint_large entry_index;
+
+  if (environment == NULL) {
+    return;
+  }
+
+  entry_index = 0;
+  while (environment[entry_index] != NULL) {
+    entry_index++;
+  }
+
+  NEXUS_ASSERT_MESSAGE_DEBUG(entry_index > 0, "Process environment with injected variable requires an injected entry.");
+  free(environment[entry_index - 1U]);
+  free((void *)environment);
+}
+
 #if defined(NEXUS_PLATFORM_WINDOWS)
 
 static NError nexus_process_windows_environment_block_create(char *const *environment, char **out_environment_block) {
@@ -277,6 +386,447 @@ static void nexus_process_posix_socket_close(int *socket_handle) {
 }
 
 #endif
+
+static void n_process_child_channel_destroy(NexusProcessChildChannel *channel) {
+  if (channel == NULL) {
+    return;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  nexus_process_windows_handle_close(&channel->read_handle);
+  nexus_process_windows_handle_close(&channel->write_handle);
+#else
+  nexus_process_posix_socket_close(&channel->socket_handle);
+#endif
+
+  free(channel);
+}
+
+void nexus_process_child_channel_destroy(NexusProcessChildChannel *channel) {
+  n_process_child_channel_destroy(channel);
+}
+
+NError nexus_process_child_channel_write(NexusProcessChildChannel *channel, const byte *bytes, uint_large byte_count) {
+  uint_large written_total;
+
+  NEXUS_ASSERT_DEBUG(channel != NULL);
+  NEXUS_ASSERT_DEBUG(bytes != NULL || byte_count == 0);
+
+  if (channel == NULL || (bytes == NULL && byte_count > 0)) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  written_total = 0;
+  while (written_total < byte_count) {
+#if defined(NEXUS_PLATFORM_WINDOWS)
+    DWORD request_size;
+    DWORD bytes_written;
+
+    if (channel->write_handle == NULL) {
+      return NEXUS_ERROR_IO;
+    }
+
+    request_size  = (DWORD)((byte_count - written_total) > (uint_large)0x7FFFFFFFUL ? (uint_large)0x7FFFFFFFUL : (byte_count - written_total));
+    bytes_written = 0;
+    if (WriteFile(channel->write_handle, bytes + written_total, request_size, &bytes_written, NULL) == 0 || bytes_written == 0) {
+      return NEXUS_ERROR_IO;
+    }
+    written_total += (uint_large)bytes_written;
+#else
+    ssize_t bytes_written;
+    int     send_flags;
+
+    if (channel->socket_handle < 0) {
+      return NEXUS_ERROR_IO;
+    }
+
+    send_flags = 0;
+#  if defined(MSG_NOSIGNAL)
+    send_flags = MSG_NOSIGNAL;
+#  endif
+    bytes_written = send(channel->socket_handle, bytes + written_total, (size_t)(byte_count - written_total), send_flags);
+    if (bytes_written < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return NEXUS_ERROR_IO;
+    }
+    if (bytes_written == 0) {
+      return NEXUS_ERROR_IO;
+    }
+    written_total += (uint_large)bytes_written;
+#endif
+  }
+
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_process_child_channel_read(NexusProcessChildChannel *channel, byte *buffer, uint_large byte_count, uint_large *out_bytes_read,
+                                        boolean *out_reached_eof) {
+  NEXUS_ASSERT_DEBUG(channel != NULL);
+  NEXUS_ASSERT_DEBUG(buffer != NULL || byte_count == 0);
+  NEXUS_ASSERT_DEBUG(out_bytes_read != NULL);
+  NEXUS_ASSERT_DEBUG(out_reached_eof != NULL);
+
+  if (channel == NULL || (buffer == NULL && byte_count > 0) || out_bytes_read == NULL || out_reached_eof == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_bytes_read  = 0;
+  *out_reached_eof = FALSE;
+
+  if (byte_count == 0) {
+    return NEXUS_ERROR_NONE;
+  }
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  {
+    DWORD request_size;
+    DWORD bytes_read;
+
+    if (channel->read_handle == NULL) {
+      *out_reached_eof = TRUE;
+      return NEXUS_ERROR_NONE;
+    }
+
+    request_size = (DWORD)(byte_count > (uint_large)0x7FFFFFFFUL ? (uint_large)0x7FFFFFFFUL : byte_count);
+    bytes_read   = 0;
+    if (ReadFile(channel->read_handle, buffer, request_size, &bytes_read, NULL) == 0) {
+      if (GetLastError() == ERROR_BROKEN_PIPE) {
+        *out_reached_eof = TRUE;
+        return NEXUS_ERROR_NONE;
+      }
+      return NEXUS_ERROR_IO;
+    }
+
+    if (bytes_read == 0) {
+      *out_reached_eof = TRUE;
+      return NEXUS_ERROR_NONE;
+    }
+
+    *out_bytes_read = (uint_large)bytes_read;
+  }
+#else
+  {
+    ssize_t bytes_read;
+
+    if (channel->socket_handle < 0) {
+      *out_reached_eof = TRUE;
+      return NEXUS_ERROR_NONE;
+    }
+
+    do {
+      bytes_read = recv(channel->socket_handle, buffer, (size_t)byte_count, 0);
+    } while (bytes_read < 0 && errno == EINTR);
+
+    if (bytes_read < 0) {
+      return NEXUS_ERROR_IO;
+    }
+    if (bytes_read == 0) {
+      *out_reached_eof = TRUE;
+      return NEXUS_ERROR_NONE;
+    }
+
+    *out_bytes_read = (uint_large)bytes_read;
+  }
+#endif
+
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_process_spawn_with_child_channel(NexusPath executable_path, char *const *argv, char *const *environment,
+                                              const char *child_channel_environment_name, NexusProcess **out_process,
+                                              NexusProcessChildChannel **out_child_channel) {
+  NexusProcess             *process;
+  NexusProcessChildChannel *channel;
+  char                     *channel_environment_value;
+  char                    **launch_environment;
+
+  NEXUS_ASSERT_DEBUG(executable_path.buffer[0] != '\0');
+  NEXUS_ASSERT_DEBUG(argv != NULL);
+  NEXUS_ASSERT_DEBUG(child_channel_environment_name != NULL);
+  NEXUS_ASSERT_DEBUG(out_process != NULL);
+  NEXUS_ASSERT_DEBUG(out_child_channel != NULL);
+
+  if (executable_path.buffer[0] == '\0' || argv == NULL || child_channel_environment_name == NULL || child_channel_environment_name[0] == '\0' ||
+      out_process == NULL || out_child_channel == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_process       = NULL;
+  *out_child_channel = NULL;
+  process            = (NexusProcess *)malloc(NEXUS_SIZEOF(*process));
+  channel            = (NexusProcessChildChannel *)malloc(NEXUS_SIZEOF(*channel));
+
+  if (process == NULL || channel == NULL) {
+    free(process);
+    free(channel);
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  nexus_memory_bytes_clear(process, NEXUS_SIZEOF(*process));
+  nexus_memory_bytes_clear(channel, NEXUS_SIZEOF(*channel));
+#if defined(NEXUS_PLATFORM_POSIX)
+  process->stdin_socket  = -1;
+  process->stdout_socket = -1;
+  channel->socket_handle = -1;
+#endif
+  channel_environment_value = NULL;
+  launch_environment        = NULL;
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  {
+    SECURITY_ATTRIBUTES     security_attributes;
+    STARTUPINFOA            startup_info;
+    PROCESS_INFORMATION     process_info;
+    HANDLE                  child_read_handle;
+    HANDLE                  child_write_handle;
+    char                   *environment_block;
+    char                    command_line[4096];
+    NexusStringFormatResult format_result;
+    NError                  error;
+
+    child_read_handle  = NULL;
+    child_write_handle = NULL;
+    environment_block  = NULL;
+
+    nexus_memory_bytes_clear(&security_attributes, NEXUS_SIZEOF(security_attributes));
+    security_attributes.nLength        = NEXUS_SIZEOF(security_attributes);
+    security_attributes.bInheritHandle = TRUE;
+
+    if (CreatePipe(&child_read_handle, &channel->write_handle, &security_attributes, 0) == 0 ||
+        SetHandleInformation(channel->write_handle, HANDLE_FLAG_INHERIT, 0) == 0 ||
+        CreatePipe(&channel->read_handle, &child_write_handle, &security_attributes, 0) == 0 ||
+        SetHandleInformation(channel->read_handle, HANDLE_FLAG_INHERIT, 0) == 0) {
+      nexus_process_windows_handle_close(&child_read_handle);
+      nexus_process_windows_handle_close(&child_write_handle);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_IO;
+    }
+
+    channel_environment_value = (char *)malloc(2U * 2U * NEXUS_SIZEOF(uint_large) + 4U);
+    if (channel_environment_value == NULL) {
+      nexus_process_windows_handle_close(&child_read_handle);
+      nexus_process_windows_handle_close(&child_write_handle);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    format_result = nexus_strings_string_format(channel_environment_value, 2U * 2U * NEXUS_SIZEOF(uint_large) + 4U, "%llu:%llu",
+                                                (unsigned long long)(uintptr_t)child_read_handle, (unsigned long long)(uintptr_t)child_write_handle);
+    if (format_result.success == FALSE || format_result.truncated != FALSE) {
+      free(channel_environment_value);
+      nexus_process_windows_handle_close(&child_read_handle);
+      nexus_process_windows_handle_close(&child_write_handle);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    launch_environment = n_process_environment_with_variable_create(environment, child_channel_environment_name, channel_environment_value);
+    free(channel_environment_value);
+    if (launch_environment == NULL) {
+      nexus_process_windows_handle_close(&child_read_handle);
+      nexus_process_windows_handle_close(&child_write_handle);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    error = nexus_process_windows_command_line_build(argv, 0, command_line, (uint_large)NEXUS_SIZEOF(command_line));
+    if (error == NEXUS_ERROR_NONE) {
+      error = nexus_process_windows_environment_block_create(launch_environment, &environment_block);
+    }
+    if (error != NEXUS_ERROR_NONE) {
+      n_process_environment_with_variable_destroy(launch_environment);
+      nexus_process_windows_handle_close(&child_read_handle);
+      nexus_process_windows_handle_close(&child_write_handle);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return error;
+    }
+
+    nexus_memory_bytes_clear(&startup_info, NEXUS_SIZEOF(startup_info));
+    nexus_memory_bytes_clear(&process_info, NEXUS_SIZEOF(process_info));
+    startup_info.cb = NEXUS_SIZEOF(startup_info);
+
+    if (CreateProcessA(executable_path.buffer, command_line, NULL, NULL, TRUE, 0, environment_block, NULL, &startup_info, &process_info) == 0) {
+      NEXUS_FREE_IF_NOT_NULL(environment_block);
+      n_process_environment_with_variable_destroy(launch_environment);
+      nexus_process_windows_handle_close(&child_read_handle);
+      nexus_process_windows_handle_close(&child_write_handle);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_IO;
+    }
+
+    NEXUS_FREE_IF_NOT_NULL(environment_block);
+    n_process_environment_with_variable_destroy(launch_environment);
+    nexus_process_windows_handle_close(&child_read_handle);
+    nexus_process_windows_handle_close(&child_write_handle);
+
+    process->process_handle = process_info.hProcess;
+    process->thread_handle  = process_info.hThread;
+  }
+#else
+  {
+    int                     channel_pair[2];
+    pid_t                   child_process_id;
+    NexusStringFormatResult format_result;
+
+    channel_pair[0] = -1;
+    channel_pair[1] = -1;
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, channel_pair) != 0) {
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_IO;
+    }
+
+    channel_environment_value = (char *)malloc(32U);
+    if (channel_environment_value == NULL) {
+      nexus_process_posix_socket_close(&channel_pair[0]);
+      nexus_process_posix_socket_close(&channel_pair[1]);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    format_result = nexus_strings_string_format(channel_environment_value, 32U, "%d", channel_pair[1]);
+    if (format_result.success == FALSE || format_result.truncated != FALSE) {
+      free(channel_environment_value);
+      nexus_process_posix_socket_close(&channel_pair[0]);
+      nexus_process_posix_socket_close(&channel_pair[1]);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    launch_environment = n_process_environment_with_variable_create(environment, child_channel_environment_name, channel_environment_value);
+    free(channel_environment_value);
+    if (launch_environment == NULL) {
+      nexus_process_posix_socket_close(&channel_pair[0]);
+      nexus_process_posix_socket_close(&channel_pair[1]);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_CAPACITY;
+    }
+
+    child_process_id = fork();
+    if (child_process_id < 0) {
+      n_process_environment_with_variable_destroy(launch_environment);
+      nexus_process_posix_socket_close(&channel_pair[0]);
+      nexus_process_posix_socket_close(&channel_pair[1]);
+      n_process_child_channel_destroy(channel);
+      free(process);
+      return NEXUS_ERROR_IO;
+    }
+
+    if (child_process_id == 0) {
+      (void)close(channel_pair[0]);
+      if (execve(executable_path.buffer, argv, launch_environment) == -1) {
+        _exit(127);
+      }
+      _exit(127);
+    }
+
+    n_process_environment_with_variable_destroy(launch_environment);
+    nexus_process_posix_socket_close(&channel_pair[1]);
+    channel->socket_handle = channel_pair[0];
+    process->process_id    = child_process_id;
+  }
+#endif
+
+  process->running   = TRUE;
+  process->waited    = FALSE;
+  process->exit_code = 0;
+  *out_process       = process;
+  *out_child_channel = channel;
+
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_process_child_channel_open_from_environment(const char *environment_name, NexusProcessChildChannel **out_channel) {
+  char                      channel_value[96];
+  NexusProcessChildChannel *channel;
+  NError                    error;
+
+  NEXUS_ASSERT_DEBUG(environment_name != NULL);
+  NEXUS_ASSERT_DEBUG(out_channel != NULL);
+
+  if (environment_name == NULL || environment_name[0] == '\0' || out_channel == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_channel = NULL;
+  error        = nexus_environment_variable_get(environment_name, channel_value, NEXUS_SIZEOF(channel_value));
+  if (error != NEXUS_ERROR_NONE) {
+    return error;
+  }
+
+  channel = (NexusProcessChildChannel *)malloc(NEXUS_SIZEOF(*channel));
+  if (channel == NULL) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+  nexus_memory_bytes_clear(channel, NEXUS_SIZEOF(*channel));
+
+#if defined(NEXUS_PLATFORM_WINDOWS)
+  {
+    char  *separator;
+    uint64 read_value;
+    uint64 write_value;
+
+    separator = channel_value;
+    while (*separator != '\0' && *separator != ':') {
+      separator++;
+    }
+    if (*separator != ':') {
+      free(channel);
+      return NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+    *separator = '\0';
+    error      = nexus_strings_string_parse_uint64(channel_value, &read_value);
+    if (error == NEXUS_ERROR_NONE) {
+      error = nexus_strings_string_parse_uint64(separator + 1, &write_value);
+    }
+    if (error != NEXUS_ERROR_NONE) {
+      free(channel);
+      return error;
+    }
+
+    channel->read_handle  = (HANDLE)(uintptr_t)read_value;
+    channel->write_handle = (HANDLE)(uintptr_t)write_value;
+    if (SetHandleInformation(channel->read_handle, HANDLE_FLAG_INHERIT, 0) == 0 ||
+        SetHandleInformation(channel->write_handle, HANDLE_FLAG_INHERIT, 0) == 0) {
+      free(channel);
+      return NEXUS_ERROR_IO;
+    }
+  }
+#else
+  {
+    uint32 descriptor_value;
+    int    descriptor_flags;
+
+    error = nexus_strings_string_parse_uint32(channel_value, &descriptor_value);
+    if (error != NEXUS_ERROR_NONE || descriptor_value > (uint32)INT_MAX) {
+      free(channel);
+      return error != NEXUS_ERROR_NONE ? error : NEXUS_ERROR_INVALID_ARGUMENT;
+    }
+
+    channel->socket_handle = (int)descriptor_value;
+    descriptor_flags       = fcntl(channel->socket_handle, F_GETFD);
+    if (descriptor_flags < 0 || fcntl(channel->socket_handle, F_SETFD, descriptor_flags | FD_CLOEXEC) < 0) {
+      free(channel);
+      return NEXUS_ERROR_IO;
+    }
+  }
+#endif
+
+  *out_channel = channel;
+  return NEXUS_ERROR_NONE;
+}
 
 NError nexus_process_spawn_piped(NexusPath executable_path, char *const *argv, char *const *environment, NexusProcess **out_process) {
   NexusProcess *process;
