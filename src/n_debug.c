@@ -141,6 +141,27 @@ static void nexus_debug_mem_stats_on_alloc(size_t size) {
   }
 }
 
+/*
+ * Suspended debugging omits guards and allocation metadata, but measurements
+ * still need the allocation events performed through the Nexus wrappers.
+ */
+static void nexus_debug_mem_stats_on_untracked_alloc(size_t size) {
+  NexusMemMeasurementNode *measurement;
+
+  n_mem_stats_total_bytes_allocated += (uint_large)size;
+  n_mem_stats_allocation_count++;
+
+  if (size > n_mem_stats_largest_allocation)
+    n_mem_stats_largest_allocation = size;
+
+  measurement = n_mem_measurements;
+  while (measurement != NULL) {
+    if (size > measurement->largest_allocation_bytes)
+      measurement->largest_allocation_bytes = size;
+    measurement = measurement->next;
+  }
+}
+
 static void nexus_debug_mem_stats_on_free(size_t size) {
   n_mem_stats_total_bytes_freed += (uint_large)size;
   n_mem_stats_free_count++;
@@ -598,7 +619,16 @@ void *nexus_debug_mem_malloc(size_t size, char *file, unsigned int line) {
 
   if (!active) {
     n_mem_unlock();
-    return malloc(size);
+
+    pointer = (unsigned char *)malloc(size);
+
+    if (pointer == NULL)
+      return NULL;
+
+    n_mem_lock();
+    nexus_debug_mem_stats_on_untracked_alloc(size);
+    n_mem_unlock();
+    return pointer;
   }
 
   if (size == 0) {
@@ -672,7 +702,16 @@ void *nexus_debug_mem_calloc(size_t num, size_t size, char *file, unsigned int l
 
   if (!active) {
     n_mem_unlock();
-    return calloc(num, size);
+
+    pointer = (unsigned char *)calloc(num, size);
+
+    if (pointer == NULL)
+      return NULL;
+
+    n_mem_lock();
+    nexus_debug_mem_stats_on_untracked_alloc(total);
+    n_mem_unlock();
+    return pointer;
   }
 
   if (total > (size_t)-1 - NEXUS_MEMORY_OVER_ALLOC) {
@@ -955,7 +994,16 @@ void *nexus_debug_mem_realloc(void *pointer, size_t size, char *file, unsigned i
   if (!nexus_memory_active) {
     if (!nexus_debug_mem_lookup_exact_unlocked(pointer)) {
       n_mem_unlock();
-      return realloc(pointer, size);
+
+      new_pointer = (unsigned char *)realloc(pointer, size);
+
+      if (new_pointer == NULL)
+        return NULL;
+
+      n_mem_lock();
+      nexus_debug_mem_stats_on_untracked_alloc(size);
+      n_mem_unlock();
+      return new_pointer;
     }
 
     for (i = 0; i < n_alloc_line_count; i++) {
@@ -981,6 +1029,7 @@ void *nexus_debug_mem_realloc(void *pointer, size_t size, char *file, unsigned i
       memset(new_pointer + move, 0, size - move);
 
     (void)nexus_debug_mem_remove_unlocked((unsigned char *)pointer, file, line, TRUE, &old_size);
+    nexus_debug_mem_stats_on_untracked_alloc(size);
     n_mem_unlock();
     return new_pointer;
   }

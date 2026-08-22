@@ -1081,7 +1081,9 @@ When active is TRUE:
 When active is FALSE:
 - new allocations use the underlying libc allocator directly;
 - memory-debug range checks are bypassed;
-- allocation tracing for new libc allocations is suppressed.
+- allocation-site tracking for new libc allocations is suppressed;
+- allocation-event statistics and active measurement intervals still record
+  successful malloc, calloc, and realloc operations.
 
 Allocations created while the debugger was active remain recognizable after the
 debugger is suspended. They can therefore still be safely freed or reallocated.
@@ -1351,13 +1353,15 @@ peak_live_block_count:
   statistics reset.
 
 total_bytes_allocated:
-  Cumulative user-visible bytes allocated while full debugging was active.
+  Cumulative user-visible bytes allocated through the Nexus allocation
+  wrappers, including allocations made while full debugging was suspended.
 
 total_bytes_freed:
   Cumulative user-visible bytes freed from tracked allocations.
 
 allocation_count:
-  Number of tracked allocation events.
+  Number of allocation events made through the Nexus allocation wrappers,
+  including events observed while full debugging was suspended.
 
 free_count:
   Number of tracked free events.
@@ -1366,8 +1370,8 @@ call_site_count:
   Number of distinct source allocation sites known to the debugger.
 
 largest_allocation_bytes:
-  Largest individual tracked allocation observed during the current statistics
-  interval.
+  Largest individual allocation observed through the Nexus allocation wrappers
+  during the current statistics interval.
 */
 typedef struct NexusDebugMemSummary {
   size_t     live_bytes;
