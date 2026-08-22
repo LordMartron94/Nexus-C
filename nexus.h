@@ -1491,11 +1491,13 @@ allocation measurement interval.
 Applications should treat its fields as implementation-managed state after
 passing the context to nexus_debug_mem_measurement_begin.
 
-The structure remains public for ABI compatibility and stack allocation.
+The structure remains public so callers can allocate it on the stack or embed
+it in their own storage.
 */
 typedef struct NexusDebugMemMeasurementContext {
   uint_large baseline_allocation_count;
   uint_large baseline_total_bytes_allocated;
+  void      *measurement_state;
   size_t     interval_largest_allocation_bytes;
 } NexusDebugMemMeasurementContext;
 
@@ -1513,7 +1515,8 @@ while several measurements are active contribute to each applicable interval.
 This remains true while full memory debugging is suspended.
 
 context must remain valid until the corresponding
-nexus_debug_mem_measurement_end call.
+nexus_debug_mem_measurement_end call. Its contents may move to another address
+during the interval, for example when an owning array is reallocated.
 */
 extern void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context);
 
@@ -1530,7 +1533,7 @@ context and measurement must not be NULL.
 The same context should not be ended more than once without first beginning a
 new interval.
 */
-extern void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement);
+extern void nexus_debug_mem_measurement_end(NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement);
 
 /* ---------------------------------------------------------------------------- */
 /* MEMORY USAGE QUERIES                                                         */

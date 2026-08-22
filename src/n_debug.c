@@ -87,9 +87,8 @@ static uint_large n_mem_stats_free_count            = 0;
 static size_t     n_mem_stats_largest_allocation    = 0;
 
 typedef struct NexusMemMeasurementNode {
-  const NexusDebugMemMeasurementContext *context;
-  size_t                                 largest_allocation_bytes;
-  struct NexusMemMeasurementNode        *next;
+  size_t                          largest_allocation_bytes;
+  struct NexusMemMeasurementNode *next;
 } NexusMemMeasurementNode;
 
 static NexusMemMeasurementNode *n_mem_measurements = NULL;
@@ -342,7 +341,6 @@ static void nexus_debug_mem_summary_copy_unlocked(NexusDebugMemSummary *summary)
 
 void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context) {
   NexusMemMeasurementNode *node;
-  NexusMemMeasurementNode *cursor;
   NexusDebugMemSummary     summary;
 
   if (context == NULL)
@@ -353,33 +351,25 @@ void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context)
   nexus_debug_mem_summary_copy_unlocked(&summary);
   context->baseline_allocation_count         = summary.allocation_count;
   context->baseline_total_bytes_allocated    = summary.total_bytes_allocated;
+  context->measurement_state                 = NULL;
   context->interval_largest_allocation_bytes = 0;
-
-  cursor = n_mem_measurements;
-  while (cursor != NULL) {
-    if (cursor->context == context) {
-      cursor->largest_allocation_bytes = 0;
-      n_mem_unlock();
-      return;
-    }
-    cursor = cursor->next;
-  }
 
   node = (NexusMemMeasurementNode *)malloc(sizeof(*node));
   if (node != NULL) {
-    node->context                  = context;
     node->largest_allocation_bytes = 0;
     node->next                     = n_mem_measurements;
     n_mem_measurements             = node;
+    context->measurement_state     = node;
   }
 
   n_mem_unlock();
 }
 
-void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement) {
+void nexus_debug_mem_measurement_end(NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement) {
   NexusDebugMemSummary     summary;
   NexusMemMeasurementNode *node;
   NexusMemMeasurementNode *previous;
+  NexusMemMeasurementNode *target;
   size_t                   largest;
 
   if (context == NULL || measurement == NULL)
@@ -391,9 +381,10 @@ void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *cont
   largest  = context->interval_largest_allocation_bytes;
   previous = NULL;
   node     = n_mem_measurements;
+  target   = (NexusMemMeasurementNode *)context->measurement_state;
 
   while (node != NULL) {
-    if (node->context == context) {
+    if (node == target) {
       largest = node->largest_allocation_bytes;
       if (previous == NULL)
         n_mem_measurements = node->next;
@@ -412,6 +403,7 @@ void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *cont
                                               ? summary.total_bytes_allocated - context->baseline_total_bytes_allocated
                                               : 0;
   measurement->largest_allocation_bytes = largest;
+  context->measurement_state            = NULL;
 
   n_mem_unlock();
 }
