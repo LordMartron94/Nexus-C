@@ -644,8 +644,10 @@ NError nexus_hardware_minor_page_faults_get(uint64 *count) {
 
 #if defined(NEXUS_PLATFORM_LINUX)
 
-static int     s_hardware_linux_cache_miss_perf_fd     = -1;
-static boolean s_hardware_linux_cache_miss_perf_failed = FALSE;
+static int     s_hardware_linux_cache_miss_perf_fd      = -1;
+static boolean s_hardware_linux_cache_miss_perf_failed  = FALSE;
+static int     s_hardware_linux_instruction_perf_fd     = -1;
+static boolean s_hardware_linux_instruction_perf_failed = FALSE;
 
 static NError n_hardware_linux_cache_miss_perf_event_try_open(uint64 config, uint32 type) {
   struct perf_event_attr event_attributes;
@@ -736,6 +738,55 @@ static NError n_hardware_linux_cache_miss_perf_event_read(uint64 *count) {
   return NEXUS_ERROR_NONE;
 }
 
+static NError n_hardware_linux_instruction_perf_event_open(void) {
+  struct perf_event_attr event_attributes;
+  int                    perf_event_fd;
+
+  if (s_hardware_linux_instruction_perf_fd >= 0) {
+    return NEXUS_ERROR_NONE;
+  }
+  if (s_hardware_linux_instruction_perf_failed != FALSE) {
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+  }
+
+  memset(&event_attributes, 0, sizeof(event_attributes));
+  event_attributes.type           = PERF_TYPE_HARDWARE;
+  event_attributes.size           = (uint32)sizeof(event_attributes);
+  event_attributes.config         = PERF_COUNT_HW_INSTRUCTIONS;
+  event_attributes.disabled       = 0;
+  event_attributes.exclude_kernel = 1;
+  event_attributes.exclude_hv     = 1;
+  event_attributes.inherit        = 0;
+
+  perf_event_fd = (int)syscall(SYS_perf_event_open, &event_attributes, (pid_t)0, -1, -1, 0UL);
+  if (perf_event_fd < 0) {
+    s_hardware_linux_instruction_perf_failed = TRUE;
+    if (errno == EPERM || errno == EACCES) {
+      return NEXUS_ERROR_PERMISSION_DENIED;
+    }
+    return NEXUS_ERROR_IO;
+  }
+
+  s_hardware_linux_instruction_perf_fd = perf_event_fd;
+  return NEXUS_ERROR_NONE;
+}
+
+static NError n_hardware_linux_instruction_perf_event_read(uint64 *count) {
+  ssize_t bytes_read;
+  NError  open_error;
+
+  open_error = n_hardware_linux_instruction_perf_event_open();
+  if (open_error != NEXUS_ERROR_NONE) {
+    return open_error;
+  }
+
+  bytes_read = read(s_hardware_linux_instruction_perf_fd, count, (size_t)sizeof(uint64));
+  if (bytes_read != (ssize_t)sizeof(uint64)) {
+    return NEXUS_ERROR_IO;
+  }
+  return NEXUS_ERROR_NONE;
+}
+
 #endif
 
 NError nexus_hardware_cache_misses_get(uint64 *count) {
@@ -745,6 +796,18 @@ NError nexus_hardware_cache_misses_get(uint64 *count) {
 
 #if defined(NEXUS_PLATFORM_LINUX)
   return n_hardware_linux_cache_miss_perf_event_read(count);
+#else
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+NError nexus_hardware_cpu_retired_instructions_get(uint64 *count) {
+  if (count == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+#if defined(NEXUS_PLATFORM_LINUX)
+  return n_hardware_linux_instruction_perf_event_read(count);
 #else
   return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
 #endif

@@ -1081,33 +1081,10 @@ When active is TRUE:
 When active is FALSE:
 - new allocations use the underlying libc allocator directly;
 - memory-debug range checks are bypassed;
-- guard storage, allocation-site tracking, and memory-debug logging are
-  suppressed for new libc allocations;
-- allocation-event statistics and active measurement intervals continue to
-  record successful malloc, calloc, and realloc operations.
-
-Nexus changes the allocation and byte-operation dispatch functions when this
-state changes. Consequently, ordinary allocation and byte-operation calls do
-not test the runtime state in their hot paths; they call the selected function
-directly through the dispatch pointer.
-
-Changing this state requires other threads which can enter the allocation or
-byte-operation wrappers to be quiescent. The dispatch update is process-wide;
-it is intended for benchmark or phase boundaries, not concurrent per-thread
-mode changes.
-
-The memory copy, set, and clear wrappers call their libc operations directly
-while suspended. They do not assert, validate ranges, format log messages, or
-invoke logging callbacks. Explicit validation, allocation-report, allocation
-metadata, and reference-diagnostics APIs likewise return their inert result
-while suspended. Summary and measurement APIs remain available because they
-report the lightweight allocation statistics.
+- allocation tracing for new libc allocations is suppressed.
 
 Allocations created while the debugger was active remain recognizable after the
-debugger is suspended. The suspended free and realloc paths first identify
-such allocations and delegate to the enabled implementation, preserving the
-guarded backing-storage and allocation-metadata lifetime. They must therefore
-never be passed directly to the underlying libc allocator.
+debugger is suspended. They can therefore still be safely freed or reallocated.
 
 This is intended for temporarily removing debugger overhead from hot paths
 without losing the ability to resume debugging later.
@@ -1374,26 +1351,23 @@ peak_live_block_count:
   statistics reset.
 
 total_bytes_allocated:
-  Cumulative user-visible bytes allocated through the Nexus allocation
-  wrappers, including allocations made while full debugging was suspended.
+  Cumulative user-visible bytes allocated while full debugging was active.
 
 total_bytes_freed:
   Cumulative user-visible bytes freed from tracked allocations.
 
 allocation_count:
-  Number of allocation events made through the Nexus allocation wrappers,
-  including events observed while full debugging was suspended.
+  Number of tracked allocation events.
 
 free_count:
   Number of tracked free events.
 
 call_site_count:
-  Number of distinct source allocation sites known to the debugger. Suspended
-  allocations do not contribute because their allocation sites are not tracked.
+  Number of distinct source allocation sites known to the debugger.
 
 largest_allocation_bytes:
-  Largest individual allocation observed through the Nexus allocation wrappers
-  during the current statistics interval.
+  Largest individual tracked allocation observed during the current statistics
+  interval.
 */
 typedef struct NexusDebugMemSummary {
   size_t     live_bytes;
@@ -1461,10 +1435,6 @@ The operation resets:
 
 Current live allocations remain tracked.
 
-When full debugging is suspended, the operation resets only the lightweight
-aggregate statistics. Per-site counters are retained because source-site
-tracking is inactive and therefore unavailable in that state.
-
 In particular, current live_bytes and live_block_count remain valid so that
 later frees cannot underflow or corrupt live-allocation accounting.
 
@@ -1502,13 +1472,11 @@ allocation measurement interval.
 Applications should treat its fields as implementation-managed state after
 passing the context to nexus_debug_mem_measurement_begin.
 
-The structure remains public so callers can allocate it on the stack or embed
-it in their own storage.
+The structure remains public for ABI compatibility and stack allocation.
 */
 typedef struct NexusDebugMemMeasurementContext {
   uint_large baseline_allocation_count;
   uint_large baseline_total_bytes_allocated;
-  void      *measurement_state;
   size_t     interval_largest_allocation_bytes;
 } NexusDebugMemMeasurementContext;
 
@@ -1523,11 +1491,9 @@ It does not reset global allocation tracking or global statistics.
 
 Multiple measurement contexts may be active concurrently. Allocations occurring
 while several measurements are active contribute to each applicable interval.
-This remains true while full memory debugging is suspended.
 
 context must remain valid until the corresponding
-nexus_debug_mem_measurement_end call. Its contents may move to another address
-during the interval, for example when an owning array is reallocated.
+nexus_debug_mem_measurement_end call.
 */
 extern void nexus_debug_mem_measurement_begin(NexusDebugMemMeasurementContext *context);
 
@@ -1544,7 +1510,7 @@ context and measurement must not be NULL.
 The same context should not be ended more than once without first beginning a
 new interval.
 */
-extern void nexus_debug_mem_measurement_end(NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement);
+extern void nexus_debug_mem_measurement_end(const NexusDebugMemMeasurementContext *context, NexusDebugMemMeasurement *measurement);
 
 /* ---------------------------------------------------------------------------- */
 /* MEMORY USAGE QUERIES                                                         */
@@ -5276,6 +5242,19 @@ Returns NEXUS_ERROR_INVALID_ARGUMENT when cycle_count is NULL.
 On failure it returns an NError.
 */
 extern NError nexus_hardware_cpu_clock_cycles_get(uint64 *cycle_count);
+
+/*
+nexus_hardware_cpu_retired_instructions_get retrieves the cumulative retired
+instruction count for the current thread when supported. On Linux this uses
+perf_event_open to program the CPU PMU. User access may require permissive
+perf_event_paranoid sysctl settings.
+
+Returns NEXUS_ERROR_INVALID_ARGUMENT when count is NULL.
+Returns NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE when the platform does not expose this counter.
+Returns NEXUS_ERROR_PERMISSION_DENIED when the kernel denies PMU access.
+Returns NEXUS_ERROR_IO when the platform query fails.
+*/
+extern NError nexus_hardware_cpu_retired_instructions_get(uint64 *count);
 
 /*
 nexus_hardware_voluntary_context_switches_get retrieves the cumulative voluntary context switch
