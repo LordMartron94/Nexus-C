@@ -4,7 +4,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "../nexus.h"
-#include "./n_internal.h"
 
 #if defined(NEXUS_PLATFORM_WINDOWS)
 #  include <windows.h>
@@ -14,6 +13,8 @@
 #else
 #  error "Unsupported platform"
 #endif
+
+#include "./n_internal.h"
 
 NError nexus_filesystem_file_open(NexusPath file_path, NexusFileMode mode, NexusFileHandle **out_file_handle) {
   const char *c_mode;
@@ -95,8 +96,8 @@ NError nexus_filesystem_file_write(NexusFileHandle *file_handle, const byte *byt
     return NEXUS_ERROR_INVALID_ARGUMENT;
   }
 
-  file          = (FILE *)file_handle;
-  written_count = fwrite(bytes, 1, (size_t)length, file);
+  file               = (FILE *)file_handle;
+  written_count      = fwrite(bytes, 1, (size_t)length, file);
   *out_bytes_written = (uint_large)written_count;
 
   if (written_count != (size_t)length && ferror(file) != 0)
@@ -229,8 +230,7 @@ NError nexus_filesystem_file_copy(NexusPath source_path, NexusPath destination_p
   return status;
 }
 
-NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length,
-                                  uint_large *out_bytes_read) {
+NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, uint32 start_byte, uint_large byte_length, uint_large *out_bytes_read) {
   size_t read_count;
   FILE  *file;
 
@@ -255,7 +255,7 @@ NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, ui
     return nexus_errors_from_errno();
   }
 
-  read_count = fread(buffer, 1, (size_t)byte_length, file);
+  read_count      = fread(buffer, 1, (size_t)byte_length, file);
   *out_bytes_read = (uint_large)read_count;
 
   if (ferror(file) != 0)
@@ -338,6 +338,50 @@ NError nexus_filesystem_temp_directory_get(char *buffer, uint_large buffer_max_l
 }
 
 #if defined(NEXUS_PLATFORM_WINDOWS)
+
+NError nexus_filesystem_directory_visit(NexusPath directory_path, NexusFilesystemDirectoryVisitCallback *callback, void *user_data) {
+  WIN32_FIND_DATAA find_data;
+  HANDLE           find_handle;
+  NexusPath        search_path;
+  unsigned long    win32_error;
+  NError           error;
+
+  if (callback == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+  search_path = directory_path;
+  nexus_paths_path_append(&search_path, "*");
+  find_handle = FindFirstFileA(search_path.buffer, &find_data);
+  if (find_handle == INVALID_HANDLE_VALUE) {
+    win32_error = GetLastError();
+    if (win32_error == ERROR_FILE_NOT_FOUND) {
+      return NEXUS_ERROR_NONE;
+    }
+    return nexus_errors_from_windows_error(win32_error);
+  }
+  error = NEXUS_ERROR_NONE;
+  do {
+    NexusPath entry_path;
+
+    if (find_data.cFileName[0] == '.' && (find_data.cFileName[1] == '\0' || (find_data.cFileName[1] == '.' && find_data.cFileName[2] == '\0'))) {
+      continue;
+    }
+    entry_path = directory_path;
+    nexus_paths_path_append(&entry_path, find_data.cFileName);
+    error = callback(entry_path, user_data);
+    if (error != NEXUS_ERROR_NONE) {
+      break;
+    }
+  } while (FindNextFileA(find_handle, &find_data) != 0);
+  if (error == NEXUS_ERROR_NONE) {
+    win32_error = GetLastError();
+    if (win32_error != ERROR_NO_MORE_FILES) {
+      error = nexus_errors_from_windows_error(win32_error);
+    }
+  }
+  FindClose(find_handle);
+  return error;
+}
 
 NError nexus_filesystem_directory_create(NexusPath directory_path) {
   unsigned long win32_error;
@@ -473,6 +517,46 @@ NError nexus_filesystem_directory_delete(NexusPath directory_path, boolean recur
 }
 
 #else /* POSIX */
+
+NError nexus_filesystem_directory_visit(NexusPath directory_path, NexusFilesystemDirectoryVisitCallback *callback, void *user_data) {
+  DIR           *directory;
+  struct dirent *entry;
+  NError         error;
+
+  if (callback == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+  directory = opendir(directory_path.buffer);
+  if (directory == NULL) {
+    return nexus_errors_from_errno();
+  }
+  error = NEXUS_ERROR_NONE;
+  for (;;) {
+    NexusPath entry_path;
+
+    errno = 0;
+    entry = readdir(directory);
+    if (entry == NULL) {
+      if (errno != 0) {
+        error = nexus_errors_from_errno();
+      }
+      break;
+    }
+    if (entry->d_name[0] == '.' && (entry->d_name[1] == '\0' || (entry->d_name[1] == '.' && entry->d_name[2] == '\0'))) {
+      continue;
+    }
+    entry_path = directory_path;
+    nexus_paths_path_append(&entry_path, entry->d_name);
+    error = callback(entry_path, user_data);
+    if (error != NEXUS_ERROR_NONE) {
+      break;
+    }
+  }
+  if (closedir(directory) != 0 && error == NEXUS_ERROR_NONE) {
+    error = nexus_errors_from_errno();
+  }
+  return error;
+}
 
 NError nexus_filesystem_directory_create(NexusPath directory_path) {
   if (mkdir(directory_path.buffer, 0777) == 0)

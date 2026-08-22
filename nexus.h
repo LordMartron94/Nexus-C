@@ -1086,6 +1086,16 @@ When active is FALSE:
 - allocation-event statistics and active measurement intervals continue to
   record successful malloc, calloc, and realloc operations.
 
+Nexus changes the allocation and byte-operation dispatch functions when this
+state changes. Consequently, ordinary allocation and byte-operation calls do
+not test the runtime state in their hot paths; they call the selected function
+directly through the dispatch pointer.
+
+Changing this state requires other threads which can enter the allocation or
+byte-operation wrappers to be quiescent. The dispatch update is process-wide;
+it is intended for benchmark or phase boundaries, not concurrent per-thread
+mode changes.
+
 The memory copy, set, and clear wrappers call their libc operations directly
 while suspended. They do not assert, validate ranges, format log messages, or
 invoke logging callbacks. Explicit validation, allocation-report, allocation
@@ -1094,9 +1104,10 @@ while suspended. Summary and measurement APIs remain available because they
 report the lightweight allocation statistics.
 
 Allocations created while the debugger was active remain recognizable after the
-debugger is suspended. They can therefore still be safely freed or reallocated.
-Their debugger metadata is removed without guard or freed-memory-history
-validation while suspended.
+debugger is suspended. The suspended free and realloc paths first identify
+such allocations and delegate to the enabled implementation, preserving the
+guarded backing-storage and allocation-metadata lifetime. They must therefore
+never be passed directly to the underlying libc allocator.
 
 This is intended for temporarily removing debugger overhead from hot paths
 without losing the ability to resume debugging later.
@@ -4163,6 +4174,26 @@ nexus_filesystem_directory_create_parents creates directory_path and any missing
 Returns NEXUS_ERROR_NONE on success or when directory_path already exists as a directory.
 */
 extern NError nexus_filesystem_directory_create_parents(NexusPath directory_path);
+
+/*
+NexusFilesystemDirectoryVisitCallback is called once for each direct child of a
+directory. entry_path is the complete child path and is valid only for the
+duration of the callback.
+
+Returning an error stops iteration and makes nexus_filesystem_directory_visit
+return that error.
+*/
+typedef NError NexusFilesystemDirectoryVisitCallback(NexusPath entry_path, void *user_data);
+
+/*
+nexus_filesystem_directory_visit visits each direct child of directory_path.
+
+The visit order is filesystem-defined. The function does not recurse and does
+not report the synthetic . or .. entries.
+
+callback must not be NULL.
+*/
+extern NError nexus_filesystem_directory_visit(NexusPath directory_path, NexusFilesystemDirectoryVisitCallback *callback, void *user_data);
 
 /*
 nexus_filesystem_path_is_dir checks whether a path is a directory.
