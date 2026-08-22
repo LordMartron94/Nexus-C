@@ -225,6 +225,9 @@ static void nexus_debug_mem_log_format(const char *file, unsigned int line, cons
   va_list                 args;
   NexusStringFormatResult format_result;
 
+  if (!nexus_debug_mem_active_get())
+    return;
+
   va_start(args, format);
   format_result = nexus_strings_vstring_format_with_truncation(message, NEXUS_MEMORY_LOG_MESSAGE_MAX, format, args);
   va_end(args);
@@ -312,10 +315,12 @@ void nexus_debug_mem_reset(void) {
 
   n_mem_lock();
 
-  for (i = 0; i < n_alloc_line_count; i++) {
-    /* size is current live bytes and must not be cleared while blocks are live. */
-    n_alloc_lines[i].allocated = 0;
-    n_alloc_lines[i].freed     = 0;
+  if (nexus_memory_active) {
+    for (i = 0; i < n_alloc_line_count; i++) {
+      /* size is current live bytes and must not be cleared while blocks are live. */
+      n_alloc_lines[i].allocated = 0;
+      n_alloc_lines[i].freed     = 0;
+    }
   }
 
   nexus_debug_mem_stats_reset();
@@ -420,7 +425,15 @@ boolean nexus_debug_mem_check_bounds(void) {
   size_t         k;
 
   output = FALSE;
+
+  if (!nexus_debug_mem_active_get())
+    return FALSE;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return FALSE;
+  }
 
   for (i = 0; i < n_alloc_line_count; i++) {
     for (j = 0; j < n_alloc_lines[i].alloc_count; j++) {
@@ -685,6 +698,20 @@ void *nexus_debug_mem_calloc(size_t num, size_t size, char *file, unsigned int l
     (void)nexus_debug_mem_check_bounds();
 #endif
 
+  active = nexus_debug_mem_active_get();
+  if (!active) {
+    pointer = (unsigned char *)calloc(num, size);
+    if (pointer == NULL)
+      return NULL;
+
+    if (num == 0 || size <= (size_t)-1 / num) {
+      n_mem_lock();
+      nexus_debug_mem_stats_on_untracked_alloc(num * size);
+      n_mem_unlock();
+    }
+    return pointer;
+  }
+
   if (num == 0 || size == 0) {
     printf("Nexus Mem debugger warning: calloc size zero in file %s line %u\n", file, line);
     NEXUS_MEMORY_CALL_ON_ERROR
@@ -700,13 +727,11 @@ void *nexus_debug_mem_calloc(size_t num, size_t size, char *file, unsigned int l
   total = num * size;
 
   n_mem_lock();
-  active = nexus_memory_active;
 
-  if (!active) {
+  if (!nexus_memory_active) {
     n_mem_unlock();
 
     pointer = (unsigned char *)calloc(num, size);
-
     if (pointer == NULL)
       return NULL;
 
@@ -949,7 +974,14 @@ boolean nexus_debug_mem_comment(void *buf, char *comment) {
   unsigned int j;
   char        *copy;
 
+  if (!nexus_debug_mem_active_get())
+    return FALSE;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return FALSE;
+  }
 
   for (i = 0; i < n_alloc_line_count; i++) {
     for (j = 0; j < n_alloc_lines[i].alloc_count; j++) {
@@ -981,22 +1013,27 @@ void *nexus_debug_mem_realloc(void *pointer, size_t size, char *file, unsigned i
   size_t         old_size;
   size_t         move;
   char          *comment_copy;
+  boolean        active;
 
 #ifdef NEXUS_MEMORY_CHECK_ALWAYS
   if (nexus_debug_mem_active_get())
     (void)nexus_debug_mem_check_bounds();
 #endif
 
+  active = nexus_debug_mem_active_get();
+
   if (pointer == NULL) {
 #ifdef NEXUS_MEMORY_WARN_ON_REALLOC_NULL
-    printf("Nexus Mem debugger warning: realloc called with NULL in %s line %u\n", file, line);
+    if (active)
+      printf("Nexus Mem debugger warning: realloc called with NULL in %s line %u\n", file, line);
 #endif
     return nexus_debug_mem_malloc(size, file, line);
   }
 
   if (size == 0) {
 #ifdef NEXUS_MEMORY_WARN_ON_REALLOC_NULL
-    printf("Nexus Mem debugger warning: realloc size zero in file %s line %u; treating as free\n", file, line);
+    if (active)
+      printf("Nexus Mem debugger warning: realloc size zero in file %s line %u; treating as free\n", file, line);
 #endif
     nexus_debug_mem_free(pointer, file, line);
     return NULL;
@@ -1198,7 +1235,14 @@ void nexus_debug_mem_print(unsigned int min_allocs) {
   size_t       consumption;
   char         consumption_label[64];
 
+  if (!nexus_debug_mem_active_get())
+    return;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return;
+  }
 
   consumption = 0;
   for (i = 0; i < n_alloc_line_count; i++)
@@ -1233,7 +1277,14 @@ size_t nexus_debug_mem_footprint(unsigned int min_allocs) {
   (void)min_allocs;
   total = 0;
 
+  if (!nexus_debug_mem_active_get())
+    return 0;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return 0;
+  }
   for (i = 0; i < n_alloc_line_count; i++)
     total += n_alloc_lines[i].size;
   n_mem_unlock();
@@ -1250,7 +1301,15 @@ void *nexus_debug_mem_query_allocation(void *pointer, unsigned int *line, char *
   void          *result;
 
   result = NULL;
+
+  if (!nexus_debug_mem_active_get())
+    return NULL;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return NULL;
+  }
 
   user_pointer = (unsigned char *)pointer;
   for (i = 0; i < n_alloc_line_count; i++) {
@@ -1285,11 +1344,14 @@ boolean nexus_debug_mem_query_is_allocated(const void *pointer, size_t size, boo
 
   if (size == 0)
     return TRUE;
+
+  if (!nexus_debug_mem_active_get())
+    return TRUE;
+
   if (pointer == NULL)
     return FALSE;
 
   n_mem_lock();
-
   if (!nexus_memory_active) {
     n_mem_unlock();
     return TRUE;
@@ -1354,6 +1416,11 @@ void nexus_debug_mem_bytes_copy(void *dest, const void *src, uint_large byte_cou
   if (byte_count == 0)
     return;
 
+  if (!nexus_debug_mem_active_get()) {
+    memcpy(dest, src, (size_t)byte_count);
+    return;
+  }
+
   NEXUS_ASSERT_DEBUG(dest != NULL);
   NEXUS_ASSERT_DEBUG(src != NULL);
 
@@ -1368,6 +1435,11 @@ void nexus_debug_mem_bytes_set(void *dest, uint8 byte, uint_large byte_count, ch
   if (byte_count == 0)
     return;
 
+  if (!nexus_debug_mem_active_get()) {
+    memset(dest, (int)byte, (size_t)byte_count);
+    return;
+  }
+
   NEXUS_ASSERT_DEBUG(dest != NULL);
 
   (void)nexus_debug_mem_query_is_allocated(dest, (size_t)byte_count, TRUE);
@@ -1379,6 +1451,11 @@ void nexus_debug_mem_bytes_set(void *dest, uint8 byte, uint_large byte_count, ch
 void nexus_debug_mem_bytes_clear(void *dest, uint_large byte_count, char *file, uint32 line) {
   if (byte_count == 0)
     return;
+
+  if (!nexus_debug_mem_active_get()) {
+    memset(dest, 0, (size_t)byte_count);
+    return;
+  }
 
   NEXUS_ASSERT_DEBUG(dest != NULL);
 
@@ -1392,7 +1469,15 @@ size_t nexus_debug_mem_consumption(void) {
   size_t       sum;
 
   sum = 0;
+
+  if (!nexus_debug_mem_active_get())
+    return 0;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return 0;
+  }
   for (i = 0; i < n_alloc_line_count; i++)
     sum += n_alloc_lines[i].size;
   n_mem_unlock();
@@ -1416,7 +1501,15 @@ boolean nexus_debug_mem_check_stack_reference(void) {
   void  **slots;
 
   output = FALSE;
+
+  if (!nexus_debug_mem_active_get())
+    return FALSE;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return FALSE;
+  }
 
   for (i = 0; i < n_alloc_line_count; i++) {
     for (j = 0; j < n_alloc_lines[i].alloc_count; j++) {
@@ -1513,7 +1606,14 @@ void nexus_debug_mem_check_heap_reference(unsigned int minimum_allocations) {
   size_t j;
   size_t found;
 
+  if (!nexus_debug_mem_active_get())
+    return;
+
   n_mem_lock();
+  if (!nexus_memory_active) {
+    n_mem_unlock();
+    return;
+  }
 
   for (i = 0; i < n_alloc_line_count; i++) {
     if (n_alloc_lines[i].alloc_count >= minimum_allocations) {

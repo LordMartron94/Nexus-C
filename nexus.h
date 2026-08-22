@@ -1086,6 +1086,13 @@ When active is FALSE:
 - allocation-event statistics and active measurement intervals continue to
   record successful malloc, calloc, and realloc operations.
 
+The memory copy, set, and clear wrappers call their libc operations directly
+while suspended. They do not assert, validate ranges, format log messages, or
+invoke logging callbacks. Explicit validation, allocation-report, allocation
+metadata, and reference-diagnostics APIs likewise return their inert result
+while suspended. Summary and measurement APIs remain available because they
+report the lightweight allocation statistics.
+
 Allocations created while the debugger was active remain recognizable after the
 debugger is suspended. They can therefore still be safely freed or reallocated.
 Their debugger metadata is removed without guard or freed-memory-history
@@ -1442,6 +1449,10 @@ The operation resets:
 - corresponding per-site historical counters.
 
 Current live allocations remain tracked.
+
+When full debugging is suspended, the operation resets only the lightweight
+aggregate statistics. Per-site counters are retained because source-site
+tracking is inactive and therefore unavailable in that state.
 
 In particular, current live_bytes and live_block_count remain valid so that
 later frees cannot underflow or corrupt live-allocation accounting.
