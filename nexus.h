@@ -5486,8 +5486,12 @@ extern NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_l
                                                uint64 hash_seed);
 extern void          nexus_data_hashmap_destroy(NexusHashMap *hashmap);
 
-extern void    nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const void *value);
-extern boolean nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key, void *out_value);
+extern void nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const void *value);
+/* Returned value storage is invalidated by a resize or destruction. */
+extern void   *nexus_data_hashmap_get(NexusHashMap *hashmap_handle, const void *key);
+extern boolean nexus_data_hashmap_get_copy(NexusHashMap *hashmap_handle, const void *key, void *out_value);
+/* Returns existing or newly claimed value storage; initialize new storage before further map use. */
+extern void   *nexus_data_hashmap_insert(NexusHashMap *hashmap_handle, const void *key);
 extern boolean nexus_data_hashmap_get_keys_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, uint_large *out_count);
 extern boolean nexus_data_hashmap_get_values_allocated(NexusHashMap *hashmap_handle, void **out_values_buffer, uint_large *out_count);
 extern boolean nexus_data_hashmap_get_entries_allocated(NexusHashMap *hashmap_handle, void **out_keys_buffer, void **out_values_buffer,
