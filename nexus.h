@@ -278,6 +278,9 @@ typedef int32  int_large;
 typedef uint32 uint_large;
 #endif
 
+#define NEXUS_SIZEOF_POINTER ((uint_large)sizeof(void *)) /* Actual pointer size independent of simulated configuration. */
+#define NEXUS_EFFECTIVE_POINTER_SIZE_BYTES ((uint_large)(NEXUS_ARCHITECTURE_BITS / 8)) /* Simulated pointer size. */
+
 /*
 timestamp stores absolute time values as unsigned nanoseconds since an epoch.
 
