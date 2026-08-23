@@ -5510,8 +5510,21 @@ typedef void NexusHashMap;
 HashMap implementation is Swiss-Table based: https://pratikpandey.substack.com/p/swisstables-high-performance-hashmaps
 */
 
+typedef enum NexusHashMapHashMode {
+  NHMHM_DEFAULT,
+  NHMHM_PREHASHED,
+
+  NHMHM_COUNT
+} NexusHashMapHashMode;
+
+/*
+Creates a Nexus HashMap.
+
+If mode is set to DEFAULT, it hashes each key using XXH3.
+If mode is set to PREHASHED, it treats the first 8 bytes (equivalent to u64) as a hash.
+*/
 extern NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large value_size_bytes, uint_large initial_capacity_groups,
-                                               uint64 hash_seed);
+                                               uint64 hash_seed, NexusHashMapHashMode mode);
 extern void          nexus_data_hashmap_destroy(NexusHashMap *hashmap);
 
 extern void nexus_data_hashmap_put(NexusHashMap *hashmap_handle, const void *key, const void *value);

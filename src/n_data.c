@@ -35,7 +35,8 @@ typedef struct HashMap {
   uint_large key_size_bytes;
   uint_large value_size_bytes;
 
-  uint64 hash_seed;
+  uint64               hash_seed;
+  NexusHashMapHashMode hash_mode;
 } HashMap;
 
 typedef struct HashMapHash {
@@ -61,7 +62,11 @@ static HashMapHash nexus_data_hashmap_hash_get(const HashMap *hashmap, const voi
   HashMapHash result;
   uint64      hash;
 
-  hash = (uint64)XXH3_64bits_withSeed(key, hashmap->key_size_bytes, hashmap->hash_seed);
+  if (hashmap->hash_mode == NHMHM_PREHASHED) {
+    hash = *(const uint64 *)key;
+  } else {
+    hash = (uint64)XXH3_64bits_withSeed(key, hashmap->key_size_bytes, hashmap->hash_seed);
+  }
 
   result.initial_group_idx = (hash >> 7) % hashmap->capacity_groups;
   result.fingerprint       = (uint8)(hash & 0x7FU);
@@ -458,8 +463,8 @@ static void nexus_data_hashmap_collect(HashMap *hashmap, boolean collect_keys, b
 /* HASH MAP PUBLIC API                                                        */
 /* -------------------------------------------------------------------------- */
 
-NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large value_size_bytes, uint_large initial_capacity_groups,
-                                        uint64 hash_seed) {
+NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large value_size_bytes, uint_large initial_capacity_groups, uint64 hash_seed,
+                                        NexusHashMapHashMode mode) {
   HashMap *hashmap;
   boolean  storage_created;
 
@@ -482,6 +487,7 @@ NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large va
   hashmap->key_size_bytes   = key_size_bytes;
   hashmap->value_size_bytes = value_size_bytes;
   hashmap->hash_seed        = hash_seed;
+  hashmap->hash_mode        = mode;
 
   storage_created = nexus_data_hashmap_storage_create(hashmap, initial_capacity_groups);
 
