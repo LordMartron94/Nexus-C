@@ -5353,6 +5353,11 @@ IEEE subnormal behavior.
 */
 extern uint32 nexus_hardware_floating_point_denormal_flush_push(void);
 
+extern NError nexus_hardware_cpu_cycles_get(uint64 *count);
+
+extern NError nexus_hardware_performance_counters_suspend(void);
+extern NError nexus_hardware_performance_counters_resume(void);
+
 /*
 nexus_hardware_floating_point_denormal_flush_pop restores the floating-point
 control word previously returned by nexus_hardware_floating_point_denormal_flush_push.
