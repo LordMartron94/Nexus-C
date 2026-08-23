@@ -3337,6 +3337,20 @@ extern NError nexus_process_spawn_with_child_channel(NexusPath executable_path, 
                                                      NexusProcessChildChannel **out_child_channel);
 
 /*
+Starts executable_path with a dedicated parent/child byte channel while
+capturing the child's standard error stream.
+
+Standard input and standard output remain inherited. Standard error is
+available to the parent through nexus_process_stderr_read.
+
+The standard error stream must be drained while the child is running to avoid
+blocking a child that produces enough output to fill the underlying pipe.
+*/
+extern NError nexus_process_spawn_with_child_channel_stderr_piped(NexusPath executable_path, char *const *argv, char *const *environment,
+                                                                  const char *child_channel_environment_name, NexusProcess **out_process,
+                                                                  NexusProcessChildChannel **out_child_channel);
+
+/*
 Adopts this process' endpoint of a channel created by
 nexus_process_spawn_with_child_channel. The adopted endpoint is made
 non-inheritable immediately so descendant processes do not keep the channel
@@ -3395,6 +3409,15 @@ child stdout pipe has reached EOF. A successful read may return fewer bytes than
 requested.
 */
 extern NError nexus_process_stdout_read(NexusProcess *process, byte *buffer, uint_large byte_count, uint_large *out_bytes_read,
+                                        boolean *out_reached_eof);
+
+/*
+Reads up to byte_count bytes from a captured child standard error stream.
+
+out_reached_eof is TRUE only once the child has closed the stream. For a
+process whose stderr was not captured, this immediately reports EOF.
+*/
+extern NError nexus_process_stderr_read(NexusProcess *process, byte *buffer, uint_large byte_count, uint_large *out_bytes_read,
                                         boolean *out_reached_eof);
 
 /*
