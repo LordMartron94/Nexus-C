@@ -62,7 +62,7 @@ static HashMapHash nexus_data_hashmap_hash_get(const HashMap *hashmap, const voi
   HashMapHash result;
   uint64      hash;
 
-  if (hashmap->hash_mode == NHMHM_PREHASHED) {
+  if (hashmap->hash_mode == NHMHM_PREHASHED || hashmap->hash_mode == NHMHM_INDIRECT_DATA) {
     hash = *(const uint64 *)key;
   } else {
     hash = (uint64)XXH3_64bits_withSeed(key, hashmap->key_size_bytes, hashmap->hash_seed);
@@ -121,12 +121,25 @@ static HashMapProbe nexus_data_hashmap_probe(HashMap *hashmap, const void *key) 
       slot_offset = ((group_idx * NEXUS_HASHMAP_GROUP_SLOT_COUNT) + slot_idx) * stride;
       key_pointer = hashmap->data + slot_offset;
 
-      if (nexus_memory_bytes_compare(key_pointer, key, hashmap->key_size_bytes) == 0) {
-        result.found     = TRUE;
-        result.group_idx = group_idx;
-        result.slot_idx  = slot_idx;
+      if (hashmap->hash_mode == NHMHM_INDIRECT_DATA) {
+        NexusHashMapIndirectKey       *stored_key = (NexusHashMapIndirectKey *)key_pointer;
+        const NexusHashMapIndirectKey *search_key = (const NexusHashMapIndirectKey *)key;
 
-        return result;
+        if (stored_key->size_bytes == search_key->size_bytes) {
+          if (nexus_memory_bytes_compare(stored_key->data, search_key->data, stored_key->size_bytes) == 0) {
+            result.found     = TRUE;
+            result.group_idx = group_idx;
+            result.slot_idx  = slot_idx;
+            return result;
+          }
+        }
+      } else {
+        if (nexus_memory_bytes_compare(key_pointer, key, hashmap->key_size_bytes) == 0) {
+          result.found     = TRUE;
+          result.group_idx = group_idx;
+          result.slot_idx  = slot_idx;
+          return result;
+        }
       }
     }
 

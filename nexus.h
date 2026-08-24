@@ -5541,15 +5541,23 @@ HashMap implementation is Swiss-Table based: https://pratikpandey.substack.com/p
 typedef enum NexusHashMapHashMode {
   NHMHM_DEFAULT,
   NHMHM_PREHASHED,
+  NHMHM_INDIRECT_DATA,
 
   NHMHM_COUNT
 } NexusHashMapHashMode;
+
+typedef struct NexusHashMapIndirectKey {
+  uint64      hash;
+  uint_large  size_bytes;
+  const void *data;
+} NexusHashMapIndirectKey;
 
 /*
 Creates a Nexus HashMap.
 
 If mode is set to DEFAULT, it hashes each key using XXH3.
 If mode is set to PREHASHED, it treats the first 8 bytes (equivalent to u64) as a hash.
+If mode is set to INDIRECT_DATA, it treats the key as a NexusHashMapIndirectKey object.
 */
 extern NexusHashMap *nexus_data_hashmap_create(uint_large key_size_bytes, uint_large value_size_bytes, uint_large initial_capacity_groups,
                                                uint64 hash_seed, NexusHashMapHashMode mode);
