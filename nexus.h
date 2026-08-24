@@ -278,7 +278,7 @@ typedef int32  int_large;
 typedef uint32 uint_large;
 #endif
 
-#define NEXUS_SIZEOF_POINTER ((uint_large)sizeof(void *)) /* Actual pointer size independent of simulated configuration. */
+#define NEXUS_SIZEOF_POINTER               ((uint_large)sizeof(void *)) /* Actual pointer size independent of simulated configuration. */
 #define NEXUS_EFFECTIVE_POINTER_SIZE_BYTES ((uint_large)(NEXUS_ARCHITECTURE_BITS / 8)) /* Simulated pointer size. */
 
 /*
@@ -1701,6 +1701,11 @@ extern void nexus_debug_mem_check_heap_reference(uint32 minimum_allocations);
 /* CORE MEMORY/TYPE HELPERS                                                     */
 /* ---------------------------------------------------------------------------- */
 
+#define NEXUS_MEMORY_BYTE_SIZE     1ULL
+#define NEXUS_MEMORY_KILOBYTE_SIZE (NEXUS_MEMORY_BYTE_SIZE * 1024)
+#define NEXUS_MEMORY_MEGABYTE_SIZE (NEXUS_MEMORY_KILOBYTE_SIZE * 1024)
+#define NEXUS_MEMORY_GIGABYTE_SIZE (NEXUS_MEMORY_MEGABYTE_SIZE * 1024)
+
 #define NEXUS_SIZEOF(type)                             ((size_t)sizeof(type))
 #define NEXUS_OFFSETOF(type, field)                    ((size_t)offsetof(type, field))
 #define NEXUS_ARRAY_SIZE_BYTES(array)                  ((size_t)sizeof(array))
@@ -2002,6 +2007,26 @@ evaluated more than once, expressions with side effects must not be supplied.
       free((ptr));                                                                                                                                   \
     }                                                                                                                                                \
   } while (0)
+
+/* ---------------------------------------------------------------------------- */
+/* ALLOCATORS                                                                   */
+/* ---------------------------------------------------------------------------- */
+
+/*
+Paged Allocators have the benefit of stable memory addresses while allowing for growth.
+
+If the allocations are variable-sized, this can lead to a bit of memory waste eventually.
+*/
+typedef void NexusPagedAllocator;
+
+extern NexusPagedAllocator *nexus_memory_paged_allocator_create(uint_large page_size, uint64 initial_pages);
+extern void                 nexus_memory_paged_allocator_destroy(NexusPagedAllocator *allocator);
+
+extern void *nexus_memory_paged_allocator_malloc(NexusPagedAllocator *allocator, uint_large size, uint_large alignment);
+extern void *nexus_memory_paged_allocator_calloc(NexusPagedAllocator *allocator, uint_large size, uint_large alignment);
+
+extern void nexus_memory_paged_allocator_free(NexusPagedAllocator *allocator, void *ptr);
+extern void nexus_memory_paged_allocator_reset(NexusPagedAllocator *allocator);
 
 /* ---------------------------------------------------------------------------- */
 /* DEBUGGER-FRIENDLY PROCESS TERMINATION                                        */
