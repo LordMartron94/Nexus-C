@@ -339,21 +339,19 @@ static boolean nexus_data_hashmap_resize(HashMap *hashmap, uint_large new_capaci
 
   void *key;
   void *value;
+  void *new_value;
 
   boolean allocation_succeeded;
 
   NEXUS_ASSERT_DEBUG(hashmap != NULL);
   NEXUS_ASSERT_DEBUG(new_capacity_groups > hashmap->capacity_groups);
 
-  new_hashmap.data             = NULL;
-  new_hashmap.metadata         = NULL;
-  new_hashmap.storage          = NULL;
-  new_hashmap.capacity_groups  = 0;
-  new_hashmap.element_count    = 0;
-  new_hashmap.deleted_count    = 0;
+  nexus_memory_bytes_clear(&new_hashmap, NEXUS_SIZEOF(new_hashmap));
+
   new_hashmap.key_size_bytes   = hashmap->key_size_bytes;
   new_hashmap.value_size_bytes = hashmap->value_size_bytes;
   new_hashmap.hash_seed        = hashmap->hash_seed;
+  new_hashmap.hash_mode        = hashmap->hash_mode;
 
   allocation_succeeded = nexus_data_hashmap_storage_create(&new_hashmap, new_capacity_groups);
 
@@ -365,7 +363,14 @@ static boolean nexus_data_hashmap_resize(HashMap *hashmap, uint_large new_capaci
   slot_idx  = 0;
 
   while (nexus_data_hashmap_active_entry_next(hashmap, &group_idx, &slot_idx, &key, &value) == TRUE) {
-    nexus_memory_bytes_copy(nexus_data_hashmap_insert_without_resize(&new_hashmap, key), value, new_hashmap.value_size_bytes);
+    new_value = nexus_data_hashmap_insert_without_resize(&new_hashmap, key);
+
+    if (new_value == NULL) {
+      free(new_hashmap.storage);
+      return FALSE;
+    }
+
+    nexus_memory_bytes_copy(new_value, value, new_hashmap.value_size_bytes);
   }
 
   NEXUS_ASSERT_DEBUG(new_hashmap.element_count == hashmap->element_count);
