@@ -448,6 +448,11 @@ same write path can describe their errors.
 */
 typedef uint32 NError;
 
+typedef struct NAnnotatedError {
+  NError error;
+  const char *reason;
+} NAnnotatedError;
+
 #define NEXUS_ERROR_NONE ((NError)0)
 
 /*
@@ -476,6 +481,16 @@ tied to the named constants instead of raw numeric literals.
 #define NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE NEXUS_ERROR_MAKE('N', 'X', 8)
 #define NEXUS_ERROR_CAPACITY                 NEXUS_ERROR_MAKE('N', 'X', 9)
 #define NEXUS_ERROR_INTERRUPTED              NEXUS_ERROR_MAKE('N', 'X', 10)
+
+static const NAnnotatedError nexus_errors_annotated_success = {NEXUS_ERROR_NONE, ""};
+
+static NAnnotatedError nexus_errors_annotated_failure_create(NError error, const char *reason) { /* NOLINT(clang-diagnostic-unused-function)*/
+  NAnnotatedError annotated;
+  annotated.error = error;
+  annotated.reason = reason;
+
+  return annotated;
+}
 
 /*
 NexusErrorMessageFormatter returns a human-readable description for a facility-specific
