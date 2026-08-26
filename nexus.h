@@ -2779,6 +2779,37 @@ static int32 nexus_strings_string_compare_mixed_alt(const char *str1, const unsi
 }
 
 /*
+nexus_strings_string_compare_alt compares string_a and string_b lexicographically.
+
+Comparison continues until the first differing byte or the end of both strings.
+Character values are compared as unsigned bytes.
+
+Returns:
+- < 0 when string_a sorts before string_b.
+- 0 when both strings are equal.
+- > 0 when string_a sorts after string_b.
+
+NULL sorts before any non-NULL string. Two NULL strings compare equal.
+*/
+static int32 nexus_strings_string_compare_alt(const char *string_a, const char *string_b) { /* NOLINT(clang-diagnostic-unused-function) */
+ uint_large i;
+
+  if (string_a == NULL || string_b == NULL) {
+    return (string_a == string_b) ? 0 : ((string_a == NULL) ? -1 : 1); /* NOLINT(readability-avoid-nested-conditional-operator) */
+  }
+
+  for (i = 0;; i++) {
+    if (string_a[i] != string_b[i]) {
+      return (int)((unsigned char)string_a[i] - (unsigned char)string_b[i]);
+    }
+
+    if (string_a[i] == '\0') {
+      return 0;
+    }
+  }
+}
+
+/*
 Checks if two strings are equal.
 
 Convenience wrapper around `nexus_strings_string_compare`
