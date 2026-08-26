@@ -832,6 +832,84 @@ boolean nexus_strings_string_find(const char *haystack, const char *needle, cons
   return FALSE;
 }
 
+NError nexus_strings_string_split(const char *string, char delimiter, char ***out_strings, uint64 *out_string_count) {
+  char     **strings;
+  char      *string_data;
+  uint_large string_length;
+  uint_large string_count;
+  uint_large pointer_bytes;
+  uint_large data_bytes;
+  uint_large allocation_size;
+  uint_large string_index;
+  uint_large index;
+
+  if (string == NULL || delimiter == '\0' || out_strings == NULL || out_string_count == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_strings      = NULL;
+  *out_string_count = 0;
+
+  string_length = nexus_strings_string_length(string);
+
+  if (string_length == UINT_LARGE_MAX_VAL) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  string_count = 1;
+  for (index = 0; index < string_length; index++) {
+    if (string[index] == delimiter) {
+      if (string_count == UINT_LARGE_MAX_VAL) {
+        return NEXUS_ERROR_CAPACITY;
+      }
+
+      string_count++;
+    }
+  }
+
+  if (string_count > UINT_LARGE_MAX_VAL / (uint_large)sizeof(*strings)) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  pointer_bytes = string_count * (uint_large)sizeof(*strings);
+  data_bytes    = string_length + 1U;
+
+  if (pointer_bytes > UINT_LARGE_MAX_VAL - data_bytes) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  allocation_size = pointer_bytes + data_bytes;
+
+  strings = (char **)malloc(allocation_size);
+  if (strings == NULL) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  string_data = (char *)(strings + string_count);
+
+  string_index          = 0;
+  strings[string_index] = string_data;
+  string_index++;
+
+  for (index = 0; index < string_length; index++) {
+    if (string[index] == delimiter) {
+      string_data[index] = '\0';
+
+      strings[string_index] = string_data + index + 1U;
+      string_index++;
+    } else {
+      string_data[index] = string[index];
+    }
+  }
+
+  string_data[string_length] = '\0';
+
+  *out_strings      = strings;
+  *out_string_count = (uint64)string_count;
+
+  return NEXUS_ERROR_NONE;
+}
+
 NError nexus_strings_string_split_on_first_delimiter(const char *string, char delimiter, char *left_buffer, uint_large left_max_length,
                                                      char *right_buffer, uint_large right_max_length) {
   uint_large index;

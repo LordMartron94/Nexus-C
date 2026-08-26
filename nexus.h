@@ -2638,6 +2638,27 @@ When found, writes the pointer to the match into out_position when out_position 
 */
 extern boolean nexus_strings_string_find(const char *haystack, const char *needle, const char **out_position);
 
+
+/*
+nexus_strings_string_split splits string at each occurrence of delimiter.
+
+On success, out_strings receives an allocated array containing the resulting
+null-terminated strings and out_string_count receives the number of elements.
+
+Empty segments are preserved. For example, splitting "a::b:" on ':' produces
+"a", "", "b", and "".
+
+The returned allocation is owned by the caller and must be released with free().
+A single free(*out_strings) releases both the array and all contained strings.
+
+Returns:
+- NEXUS_ERROR_NONE on success.
+- NEXUS_ERROR_INVALID_ARGUMENT if string, out_strings, or out_string_count is NULL,
+  or delimiter is '\0'.
+- NEXUS_ERROR_CAPACITY if memory allocation fails.
+*/
+extern NError nexus_strings_string_split(const char *string, char delimiter, char ***out_strings, uint64 *out_string_count);
+
 /*
 nexus_strings_string_split_on_first_delimiter splits string at the first delimiter occurrence.
 
