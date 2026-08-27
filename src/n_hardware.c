@@ -1,10 +1,11 @@
-#include "../nexus.h"
-
 #if defined(__linux__)
 #  ifndef _GNU_SOURCE
 #    define _GNU_SOURCE
 #  endif
+#  include <malloc.h>
 #endif
+
+#include "../nexus.h"
 
 #if defined(_MSC_VER)
 #  include <intrin.h>
@@ -962,4 +963,578 @@ NError nexus_hardware_performance_counters_resume(void) {
 #else
   return NEXUS_ERROR_NONE;
 #endif
+}
+/* ---------------------------------------------------------------------------- */
+/* EXTENSIBLE PERFORMANCE METRIC READERS                                        */
+/* ---------------------------------------------------------------------------- */
+
+struct NexusPerformanceMetricReader {
+  NexusPerformanceMetricDescriptor descriptor;
+  int                              perf_fd;
+  boolean                          enabled;
+};
+
+#define N_PERF_INTERVAL_MS(ms) {((int64)(ms) * (int64)NEXUS_NANOSECONDS_PER_MILLISECOND), NTP_MILLISECOND}
+
+static const NexusPerformanceMetricDescriptor n_hardware_performance_metrics[] = {
+    {NPMK_CPU_CYCLES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "CPU Cycles", "PMU", N_PERF_INTERVAL_MS(10)},
+    {NPMK_REFERENCE_CPU_CYCLES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Reference CPU Cycles", "PMU", N_PERF_INTERVAL_MS(10)},
+    {NPMK_RETIRED_INSTRUCTIONS, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Instructions Retired", "PMU", N_PERF_INTERVAL_MS(10)},
+    {NPMK_CACHE_REFERENCES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Cache References", "PMU", N_PERF_INTERVAL_MS(20)},
+    {NPMK_CACHE_MISSES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Cache Misses", "PMU", N_PERF_INTERVAL_MS(20)},
+    {NPMK_BRANCH_INSTRUCTIONS, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Branch Instructions", "PMU", N_PERF_INTERVAL_MS(20)},
+    {NPMK_BRANCH_MISSES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Branch Mispredictions", "PMU", N_PERF_INTERVAL_MS(20)},
+    {NPMK_BUS_CYCLES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Bus Cycles", "PMU", N_PERF_INTERVAL_MS(50)},
+    {NPMK_STALLED_FRONTEND_CYCLES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Frontend Stalled Cycles", "PMU", N_PERF_INTERVAL_MS(25)},
+    {NPMK_STALLED_BACKEND_CYCLES, NPMSK_PMU_HARDWARE, NPMVK_COUNTER, NPMUK_COUNT, "Backend Stalled Cycles", "PMU", N_PERF_INTERVAL_MS(25)},
+
+    {NPMK_L1D_READS, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "L1D Reads", "PMU Cache", N_PERF_INTERVAL_MS(25)},
+    {NPMK_L1D_READ_MISSES, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "L1D Read Misses", "PMU Cache", N_PERF_INTERVAL_MS(25)},
+    {NPMK_L1I_READS, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "L1I Reads", "PMU Cache", N_PERF_INTERVAL_MS(50)},
+    {NPMK_L1I_READ_MISSES, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "L1I Read Misses", "PMU Cache", N_PERF_INTERVAL_MS(50)},
+    {NPMK_LLC_READS, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "LLC Reads", "PMU Cache", N_PERF_INTERVAL_MS(25)},
+    {NPMK_LLC_READ_MISSES, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "LLC Read Misses", "PMU Cache", N_PERF_INTERVAL_MS(25)},
+    {NPMK_DTLB_READS, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "dTLB Reads", "PMU Cache", N_PERF_INTERVAL_MS(50)},
+    {NPMK_DTLB_READ_MISSES, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "dTLB Read Misses", "PMU Cache", N_PERF_INTERVAL_MS(50)},
+    {NPMK_ITLB_READS, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "iTLB Reads", "PMU Cache", N_PERF_INTERVAL_MS(75)},
+    {NPMK_ITLB_READ_MISSES, NPMSK_PMU_CACHE, NPMVK_COUNTER, NPMUK_COUNT, "iTLB Read Misses", "PMU Cache", N_PERF_INTERVAL_MS(75)},
+
+    {NPMK_CPU_CLOCK_NANOSECONDS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_NANOSECONDS, "CPU Clock", "Kernel", N_PERF_INTERVAL_MS(20)},
+    {NPMK_TASK_CLOCK_NANOSECONDS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_NANOSECONDS, "Task Clock", "Kernel", N_PERF_INTERVAL_MS(20)},
+    {NPMK_PAGE_FAULTS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "Page Faults", "Kernel", N_PERF_INTERVAL_MS(50)},
+    {NPMK_MINOR_PAGE_FAULTS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "Minor Page Faults", "Kernel", N_PERF_INTERVAL_MS(50)},
+    {NPMK_MAJOR_PAGE_FAULTS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "Major Page Faults", "Kernel", N_PERF_INTERVAL_MS(50)},
+    {NPMK_CONTEXT_SWITCHES, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "Context Switches", "Kernel", N_PERF_INTERVAL_MS(50)},
+    {NPMK_CPU_MIGRATIONS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "CPU Migrations", "Kernel", N_PERF_INTERVAL_MS(50)},
+    {NPMK_ALIGNMENT_FAULTS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "Alignment Faults", "Kernel", N_PERF_INTERVAL_MS(100)},
+    {NPMK_EMULATION_FAULTS, NPMSK_KERNEL_SOFTWARE, NPMVK_COUNTER, NPMUK_COUNT, "Emulation Faults", "Kernel", N_PERF_INTERVAL_MS(100)},
+
+    {NPMK_ARCHITECTURE_CLOCK_TICKS, NPMSK_ARCHITECTURE_CLOCK, NPMVK_COUNTER, NPMUK_TICKS, "Architecture Clock Ticks", "Architecture Clock",
+     N_PERF_INTERVAL_MS(10)},
+    {NPMK_PROCESS_USER_CPU_NANOSECONDS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_NANOSECONDS, "User CPU Time", "Resource Usage",
+     N_PERF_INTERVAL_MS(50)},
+    {NPMK_PROCESS_SYSTEM_CPU_NANOSECONDS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_NANOSECONDS, "System CPU Time", "Resource Usage",
+     N_PERF_INTERVAL_MS(50)},
+    {NPMK_PAGE_FAULTS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_COUNT, "Page Faults", "Resource Usage", N_PERF_INTERVAL_MS(50)},
+    {NPMK_MINOR_PAGE_FAULTS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_COUNT, "Minor Page Faults", "Resource Usage", N_PERF_INTERVAL_MS(50)},
+    {NPMK_MAJOR_PAGE_FAULTS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_COUNT, "Major Page Faults", "Resource Usage", N_PERF_INTERVAL_MS(50)},
+    {NPMK_CONTEXT_SWITCHES, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_COUNT, "Context Switches", "Resource Usage", N_PERF_INTERVAL_MS(50)},
+    {NPMK_PROCESS_MAX_RESIDENT_BYTES, NPMSK_RESOURCE_USAGE, NPMVK_GAUGE, NPMUK_BYTES, "Peak Resident Memory", "Resource Usage",
+     N_PERF_INTERVAL_MS(100)},
+    {NPMK_BLOCK_INPUT_OPERATIONS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_COUNT, "Block Input Operations", "Resource Usage",
+     N_PERF_INTERVAL_MS(100)},
+    {NPMK_BLOCK_OUTPUT_OPERATIONS, NPMSK_RESOURCE_USAGE, NPMVK_COUNTER, NPMUK_COUNT, "Block Output Operations", "Resource Usage",
+     N_PERF_INTERVAL_MS(100)},
+
+    {NPMK_DEBUG_ALLOCATIONS, NPMSK_MEMORY_DEBUGGER, NPMVK_COUNTER, NPMUK_COUNT, "Allocations", "Nexus Memory Debugger", N_PERF_INTERVAL_MS(25)},
+    {NPMK_DEBUG_BYTES_ALLOCATED, NPMSK_MEMORY_DEBUGGER, NPMVK_COUNTER, NPMUK_BYTES, "Bytes Allocated", "Nexus Memory Debugger",
+     N_PERF_INTERVAL_MS(25)},
+    {NPMK_DEBUG_FREES, NPMSK_MEMORY_DEBUGGER, NPMVK_COUNTER, NPMUK_COUNT, "Frees", "Nexus Memory Debugger", N_PERF_INTERVAL_MS(25)},
+    {NPMK_DEBUG_BYTES_FREED, NPMSK_MEMORY_DEBUGGER, NPMVK_COUNTER, NPMUK_BYTES, "Bytes Freed", "Nexus Memory Debugger", N_PERF_INTERVAL_MS(25)},
+    {NPMK_DEBUG_LIVE_BYTES, NPMSK_MEMORY_DEBUGGER, NPMVK_GAUGE, NPMUK_BYTES, "Live Bytes", "Nexus Memory Debugger", N_PERF_INTERVAL_MS(50)},
+    {NPMK_DEBUG_PEAK_LIVE_BYTES, NPMSK_MEMORY_DEBUGGER, NPMVK_GAUGE, NPMUK_BYTES, "Peak Live Bytes", "Nexus Memory Debugger", N_PERF_INTERVAL_MS(50)},
+    {NPMK_DEBUG_LIVE_BLOCKS, NPMSK_MEMORY_DEBUGGER, NPMVK_GAUGE, NPMUK_COUNT, "Live Allocations", "Nexus Memory Debugger", N_PERF_INTERVAL_MS(50)},
+
+    {NPMK_ALLOCATOR_IN_USE_BYTES, NPMSK_SYSTEM_ALLOCATOR, NPMVK_GAUGE, NPMUK_BYTES, "Allocator In-use Bytes", "System Allocator",
+     N_PERF_INTERVAL_MS(100)},
+    {NPMK_ALLOCATOR_ARENA_BYTES, NPMSK_SYSTEM_ALLOCATOR, NPMVK_GAUGE, NPMUK_BYTES, "Allocator Arena Bytes", "System Allocator",
+     N_PERF_INTERVAL_MS(100)},
+    {NPMK_ALLOCATOR_MMAP_BYTES, NPMSK_SYSTEM_ALLOCATOR, NPMVK_GAUGE, NPMUK_BYTES, "Allocator mmap Bytes", "System Allocator",
+     N_PERF_INTERVAL_MS(100)}};
+
+#undef N_PERF_INTERVAL_MS
+
+const NexusPerformanceMetricDescriptor *nexus_hardware_performance_metrics_get(uint32 *out_metric_count) {
+  if (out_metric_count == NULL) {
+    return NULL;
+  }
+
+  *out_metric_count = (uint32)NEXUS_ARRAY_SIZE_ELEMENTS(n_hardware_performance_metrics);
+  return n_hardware_performance_metrics;
+}
+
+#if defined(NEXUS_PLATFORM_LINUX)
+static boolean n_hardware_performance_perf_config_get(NexusPerformanceMetricKind kind, uint32 *out_type, uint64 *out_config) {
+  uint64 cache_config;
+
+  switch (kind) {
+  case NPMK_CPU_CYCLES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_CPU_CYCLES;
+    return TRUE;
+  case NPMK_REFERENCE_CPU_CYCLES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_REF_CPU_CYCLES;
+    return TRUE;
+  case NPMK_RETIRED_INSTRUCTIONS:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_INSTRUCTIONS;
+    return TRUE;
+  case NPMK_CACHE_REFERENCES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_CACHE_REFERENCES;
+    return TRUE;
+  case NPMK_CACHE_MISSES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_CACHE_MISSES;
+    return TRUE;
+  case NPMK_BRANCH_INSTRUCTIONS:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_BRANCH_INSTRUCTIONS;
+    return TRUE;
+  case NPMK_BRANCH_MISSES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_BRANCH_MISSES;
+    return TRUE;
+  case NPMK_BUS_CYCLES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_BUS_CYCLES;
+    return TRUE;
+  case NPMK_STALLED_FRONTEND_CYCLES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_STALLED_CYCLES_FRONTEND;
+    return TRUE;
+  case NPMK_STALLED_BACKEND_CYCLES:
+    *out_type   = PERF_TYPE_HARDWARE;
+    *out_config = PERF_COUNT_HW_STALLED_CYCLES_BACKEND;
+    return TRUE;
+
+  case NPMK_CPU_CLOCK_NANOSECONDS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_CPU_CLOCK;
+    return TRUE;
+  case NPMK_TASK_CLOCK_NANOSECONDS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_TASK_CLOCK;
+    return TRUE;
+  case NPMK_PAGE_FAULTS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_PAGE_FAULTS;
+    return TRUE;
+  case NPMK_MINOR_PAGE_FAULTS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_PAGE_FAULTS_MIN;
+    return TRUE;
+  case NPMK_MAJOR_PAGE_FAULTS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_PAGE_FAULTS_MAJ;
+    return TRUE;
+  case NPMK_CONTEXT_SWITCHES:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_CONTEXT_SWITCHES;
+    return TRUE;
+  case NPMK_CPU_MIGRATIONS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_CPU_MIGRATIONS;
+    return TRUE;
+  case NPMK_ALIGNMENT_FAULTS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_ALIGNMENT_FAULTS;
+    return TRUE;
+  case NPMK_EMULATION_FAULTS:
+    *out_type   = PERF_TYPE_SOFTWARE;
+    *out_config = PERF_COUNT_SW_EMULATION_FAULTS;
+    return TRUE;
+
+  default:
+    break;
+  }
+
+  cache_config = 0;
+  switch (kind) {
+  case NPMK_L1D_READS:
+    cache_config = PERF_COUNT_HW_CACHE_L1D | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16);
+    break;
+  case NPMK_L1D_READ_MISSES:
+    cache_config = PERF_COUNT_HW_CACHE_L1D | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+    break;
+  case NPMK_L1I_READS:
+    cache_config = PERF_COUNT_HW_CACHE_L1I | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16);
+    break;
+  case NPMK_L1I_READ_MISSES:
+    cache_config = PERF_COUNT_HW_CACHE_L1I | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+    break;
+  case NPMK_LLC_READS:
+    cache_config = PERF_COUNT_HW_CACHE_LL | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16);
+    break;
+  case NPMK_LLC_READ_MISSES:
+    cache_config = PERF_COUNT_HW_CACHE_LL | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+    break;
+  case NPMK_DTLB_READS:
+    cache_config = PERF_COUNT_HW_CACHE_DTLB | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16);
+    break;
+  case NPMK_DTLB_READ_MISSES:
+    cache_config = PERF_COUNT_HW_CACHE_DTLB | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+    break;
+  case NPMK_ITLB_READS:
+    cache_config = PERF_COUNT_HW_CACHE_ITLB | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16);
+    break;
+  case NPMK_ITLB_READ_MISSES:
+    cache_config = PERF_COUNT_HW_CACHE_ITLB | ((uint64)PERF_COUNT_HW_CACHE_OP_READ << 8) | ((uint64)PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+    break;
+  default:
+    return FALSE;
+  }
+
+  *out_type   = PERF_TYPE_HW_CACHE;
+  *out_config = cache_config;
+  return TRUE;
+}
+
+static NError n_hardware_performance_perf_open(NexusPerformanceMetricReader *reader) {
+  struct perf_event_attr attr;
+  uint32                 type;
+  uint64                 config;
+  int                    file_descriptor;
+
+  if (n_hardware_performance_perf_config_get(reader->descriptor.kind, &type, &config) == FALSE) {
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+  }
+
+  nexus_memory_bytes_clear(&attr, NEXUS_SIZEOF(attr));
+  attr.type           = type;
+  attr.size           = (uint32)NEXUS_SIZEOF(attr);
+  attr.config         = config;
+  attr.disabled       = 0;
+  attr.exclude_kernel = 1;
+  attr.exclude_hv     = 1;
+  attr.inherit        = 0;
+  attr.read_format    = PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
+
+  file_descriptor = (int)syscall(SYS_perf_event_open, &attr, (pid_t)0, -1, -1, 0UL);
+  if (file_descriptor < 0) {
+    if (errno == EPERM || errno == EACCES)
+      return NEXUS_ERROR_PERMISSION_DENIED;
+    if (errno == ENOENT || errno == ENODEV || errno == EOPNOTSUPP || errno == EINVAL)
+      return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+    return NEXUS_ERROR_IO;
+  }
+
+  reader->perf_fd = file_descriptor;
+  return NEXUS_ERROR_NONE;
+}
+
+static NError n_hardware_performance_perf_read(NexusPerformanceMetricReader *reader, uint64 *out_value) {
+  struct {
+    uint64 value;
+    uint64 time_enabled;
+    uint64 time_running;
+  } data;
+  ssize_t bytes_read;
+
+  do {
+    bytes_read = read(reader->perf_fd, &data, NEXUS_SIZEOF(data));
+  } while (bytes_read < 0 && errno == EINTR);
+
+  if (bytes_read != (ssize_t)NEXUS_SIZEOF(data))
+    return NEXUS_ERROR_IO;
+  if (data.time_running == 0)
+    return NEXUS_ERROR_IO;
+
+  if (data.time_running != data.time_enabled) {
+    long double scaled;
+    scaled = (long double)data.value * (long double)data.time_enabled / (long double)data.time_running;
+    if (scaled > (long double)UINT64_MAX_VAL)
+      *out_value = UINT64_MAX_VAL;
+    else
+      *out_value = (uint64)scaled;
+  } else {
+    *out_value = data.value;
+  }
+
+  return NEXUS_ERROR_NONE;
+}
+#endif
+
+static NError n_hardware_performance_rusage_read(NexusPerformanceMetricKind kind, uint64 *out_value) {
+#if NEXUS_PLATFORM_POSIX
+  struct rusage usage;
+  if (getrusage(RUSAGE_SELF, &usage) != 0)
+    return NEXUS_ERROR_IO;
+  switch (kind) {
+  case NPMK_PROCESS_USER_CPU_NANOSECONDS:
+    *out_value =
+        ((uint64)usage.ru_utime.tv_sec * NEXUS_NANOSECONDS_PER_SECOND) + ((uint64)usage.ru_utime.tv_usec * NEXUS_NANOSECONDS_PER_MICROSECOND);
+    return NEXUS_ERROR_NONE;
+  case NPMK_PROCESS_SYSTEM_CPU_NANOSECONDS:
+    *out_value =
+        ((uint64)usage.ru_stime.tv_sec * NEXUS_NANOSECONDS_PER_SECOND) + ((uint64)usage.ru_stime.tv_usec * NEXUS_NANOSECONDS_PER_MICROSECOND);
+    return NEXUS_ERROR_NONE;
+  case NPMK_PAGE_FAULTS:
+    *out_value = (uint64)usage.ru_minflt + (uint64)usage.ru_majflt;
+    return NEXUS_ERROR_NONE;
+  case NPMK_MINOR_PAGE_FAULTS:
+    *out_value = (uint64)usage.ru_minflt;
+    return NEXUS_ERROR_NONE;
+  case NPMK_MAJOR_PAGE_FAULTS:
+    *out_value = (uint64)usage.ru_majflt;
+    return NEXUS_ERROR_NONE;
+  case NPMK_CONTEXT_SWITCHES:
+    *out_value = (uint64)usage.ru_nvcsw + (uint64)usage.ru_nivcsw;
+    return NEXUS_ERROR_NONE;
+  case NPMK_PROCESS_MAX_RESIDENT_BYTES:
+#  if defined(__APPLE__)
+    *out_value = (uint64)usage.ru_maxrss;
+#  else
+    *out_value = (uint64)usage.ru_maxrss * 1024ULL;
+#  endif
+    return NEXUS_ERROR_NONE;
+  case NPMK_BLOCK_INPUT_OPERATIONS:
+    *out_value = (uint64)usage.ru_inblock;
+    return NEXUS_ERROR_NONE;
+  case NPMK_BLOCK_OUTPUT_OPERATIONS:
+    *out_value = (uint64)usage.ru_oublock;
+    return NEXUS_ERROR_NONE;
+  default:
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+  }
+#else
+  (void)kind;
+  (void)out_value;
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+static NError n_hardware_performance_debug_memory_read(NexusPerformanceMetricKind kind, uint64 *out_value) {
+#if NEXUS_MEMORY_DEBUG_ENABLED
+  NexusDebugMemSummary summary;
+  nexus_debug_mem_summary_get(&summary);
+  switch (kind) {
+  case NPMK_DEBUG_ALLOCATIONS:
+    *out_value = (uint64)summary.allocation_count;
+    return NEXUS_ERROR_NONE;
+  case NPMK_DEBUG_BYTES_ALLOCATED:
+    *out_value = (uint64)summary.total_bytes_allocated;
+    return NEXUS_ERROR_NONE;
+  case NPMK_DEBUG_FREES:
+    *out_value = (uint64)summary.free_count;
+    return NEXUS_ERROR_NONE;
+  case NPMK_DEBUG_BYTES_FREED:
+    *out_value = (uint64)summary.total_bytes_freed;
+    return NEXUS_ERROR_NONE;
+  case NPMK_DEBUG_LIVE_BYTES:
+    *out_value = (uint64)summary.live_bytes;
+    return NEXUS_ERROR_NONE;
+  case NPMK_DEBUG_PEAK_LIVE_BYTES:
+    *out_value = (uint64)summary.peak_live_bytes;
+    return NEXUS_ERROR_NONE;
+  case NPMK_DEBUG_LIVE_BLOCKS:
+    *out_value = (uint64)summary.live_block_count;
+    return NEXUS_ERROR_NONE;
+  default:
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+  }
+#else
+  (void)kind;
+  (void)out_value;
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+static NError n_hardware_performance_allocator_read(NexusPerformanceMetricKind kind, uint64 *out_value) {
+#if defined(__GLIBC__) && defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2, 33)
+  struct mallinfo2 info;
+  info = mallinfo2();
+  switch (kind) {
+  case NPMK_ALLOCATOR_IN_USE_BYTES:
+    *out_value = (uint64)info.uordblks;
+    return NEXUS_ERROR_NONE;
+  case NPMK_ALLOCATOR_ARENA_BYTES:
+    *out_value = (uint64)info.arena;
+    return NEXUS_ERROR_NONE;
+  case NPMK_ALLOCATOR_MMAP_BYTES:
+    *out_value = (uint64)info.hblkhd;
+    return NEXUS_ERROR_NONE;
+  default:
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+  }
+#else
+  (void)kind;
+  (void)out_value;
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+NError nexus_hardware_performance_metric_reader_create(const NexusPerformanceMetricDescriptor *descriptor,
+                                                       NexusPerformanceMetricReader          **out_reader) {
+  NexusPerformanceMetricReader *reader;
+  NError                        error;
+  uint64                        probe;
+
+  if (descriptor == NULL || out_reader == NULL)
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  *out_reader = NULL;
+
+  reader = (NexusPerformanceMetricReader *)malloc(NEXUS_SIZEOF(*reader));
+  if (reader == NULL)
+    return NEXUS_ERROR_CAPACITY;
+  nexus_memory_bytes_clear(reader, NEXUS_SIZEOF(*reader));
+  reader->descriptor = *descriptor;
+  reader->perf_fd    = -1;
+  reader->enabled    = TRUE;
+
+  if (descriptor->source_kind == NPMSK_PMU_HARDWARE || descriptor->source_kind == NPMSK_PMU_CACHE ||
+      descriptor->source_kind == NPMSK_KERNEL_SOFTWARE) {
+#if defined(NEXUS_PLATFORM_LINUX)
+    error = n_hardware_performance_perf_open(reader);
+#else
+    error = NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+  } else {
+    error = nexus_hardware_performance_metric_reader_read(reader, &probe);
+  }
+
+  if (error != NEXUS_ERROR_NONE) {
+#if defined(NEXUS_PLATFORM_LINUX)
+    if (reader->perf_fd >= 0)
+      close(reader->perf_fd);
+#endif
+    free(reader);
+    return error;
+  }
+
+  *out_reader = reader;
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_hardware_performance_metric_reader_read(NexusPerformanceMetricReader *reader, uint64 *out_value) {
+  if (reader == NULL || out_value == NULL)
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+
+  switch (reader->descriptor.source_kind) {
+  case NPMSK_PMU_HARDWARE:
+  case NPMSK_PMU_CACHE:
+  case NPMSK_KERNEL_SOFTWARE:
+#if defined(NEXUS_PLATFORM_LINUX)
+    return n_hardware_performance_perf_read(reader, out_value);
+#else
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+  case NPMSK_ARCHITECTURE_CLOCK:
+    return nexus_hardware_cpu_clock_cycles_get(out_value);
+  case NPMSK_RESOURCE_USAGE:
+    return n_hardware_performance_rusage_read(reader->descriptor.kind, out_value);
+  case NPMSK_MEMORY_DEBUGGER:
+    return n_hardware_performance_debug_memory_read(reader->descriptor.kind, out_value);
+  case NPMSK_SYSTEM_ALLOCATOR:
+    return n_hardware_performance_allocator_read(reader->descriptor.kind, out_value);
+  default:
+    return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+  }
+}
+
+NError nexus_hardware_performance_metric_reader_enabled_set(NexusPerformanceMetricReader *reader, boolean enabled) {
+  if (reader == NULL)
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+
+#if defined(NEXUS_PLATFORM_LINUX)
+  if (reader->perf_fd >= 0) {
+    unsigned long request;
+    request = enabled != FALSE ? PERF_EVENT_IOC_ENABLE : PERF_EVENT_IOC_DISABLE;
+    if (ioctl(reader->perf_fd, request, 0) != 0)
+      return NEXUS_ERROR_IO;
+  }
+#endif
+
+  reader->enabled = enabled;
+  return NEXUS_ERROR_NONE;
+}
+
+void nexus_hardware_performance_metric_reader_destroy(NexusPerformanceMetricReader *reader) {
+  if (reader == NULL)
+    return;
+#if defined(NEXUS_PLATFORM_LINUX)
+  if (reader->perf_fd >= 0)
+    close(reader->perf_fd);
+#endif
+  free(reader);
+}
+
+struct NexusPerformanceRawEventReader {
+  int perf_fd;
+};
+
+NError nexus_hardware_performance_raw_event_reader_create(NexusPerformanceRawEventConfiguration configuration,
+                                                          NexusPerformanceRawEventReader      **out_reader) {
+#if defined(NEXUS_PLATFORM_LINUX)
+  struct perf_event_attr          attr;
+  NexusPerformanceRawEventReader *reader;
+  int                             file_descriptor;
+
+  if (out_reader == NULL)
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  *out_reader = NULL;
+
+  nexus_memory_bytes_clear(&attr, NEXUS_SIZEOF(attr));
+  attr.type           = configuration.source_type;
+  attr.size           = (uint32)NEXUS_SIZEOF(attr);
+  attr.config         = configuration.config;
+  attr.config1        = configuration.config1;
+  attr.config2        = configuration.config2;
+  attr.exclude_kernel = configuration.exclude_kernel != FALSE ? 1U : 0U;
+  attr.exclude_hv     = configuration.exclude_hypervisor != FALSE ? 1U : 0U;
+  attr.read_format    = PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
+
+  file_descriptor = (int)syscall(SYS_perf_event_open, &attr, (pid_t)0, -1, -1, 0UL);
+  if (file_descriptor < 0) {
+    if (errno == EPERM || errno == EACCES)
+      return NEXUS_ERROR_PERMISSION_DENIED;
+    if (errno == ENOENT || errno == ENODEV || errno == EOPNOTSUPP || errno == EINVAL)
+      return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+    return NEXUS_ERROR_IO;
+  }
+
+  reader = (NexusPerformanceRawEventReader *)malloc(NEXUS_SIZEOF(*reader));
+  if (reader == NULL) {
+    close(file_descriptor);
+    return NEXUS_ERROR_CAPACITY;
+  }
+  reader->perf_fd = file_descriptor;
+  *out_reader     = reader;
+  return NEXUS_ERROR_NONE;
+#else
+  (void)configuration;
+  if (out_reader != NULL)
+    *out_reader = NULL;
+  return out_reader == NULL ? NEXUS_ERROR_INVALID_ARGUMENT : NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+NError nexus_hardware_performance_raw_event_reader_read(NexusPerformanceRawEventReader *reader, uint64 *out_value) {
+#if defined(NEXUS_PLATFORM_LINUX)
+  NexusPerformanceMetricReader adapter;
+  if (reader == NULL || out_value == NULL)
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  nexus_memory_bytes_clear(&adapter, NEXUS_SIZEOF(adapter));
+  adapter.perf_fd = reader->perf_fd;
+  return n_hardware_performance_perf_read(&adapter, out_value);
+#else
+  (void)reader;
+  (void)out_value;
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+NError nexus_hardware_performance_raw_event_reader_enabled_set(NexusPerformanceRawEventReader *reader, boolean enabled) {
+#if defined(NEXUS_PLATFORM_LINUX)
+  unsigned long request;
+  if (reader == NULL)
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  request = enabled != FALSE ? PERF_EVENT_IOC_ENABLE : PERF_EVENT_IOC_DISABLE;
+  return ioctl(reader->perf_fd, request, 0) == 0 ? NEXUS_ERROR_NONE : NEXUS_ERROR_IO;
+#else
+  (void)reader;
+  (void)enabled;
+  return NEXUS_ERROR_UNSUPPORTED_ARCHITECTURE;
+#endif
+}
+
+void nexus_hardware_performance_raw_event_reader_destroy(NexusPerformanceRawEventReader *reader) {
+  if (reader == NULL)
+    return;
+#if defined(NEXUS_PLATFORM_LINUX)
+  if (reader->perf_fd >= 0)
+    close(reader->perf_fd);
+#endif
+  free(reader);
 }

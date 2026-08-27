@@ -449,7 +449,7 @@ same write path can describe their errors.
 typedef uint32 NError;
 
 typedef struct NAnnotatedError {
-  NError error;
+  NError      error;
   const char *reason;
 } NAnnotatedError;
 
@@ -486,7 +486,7 @@ static const NAnnotatedError nexus_errors_annotated_success = {NEXUS_ERROR_NONE,
 
 static NAnnotatedError nexus_errors_annotated_failure_create(NError error, const char *reason) { /* NOLINT(clang-diagnostic-unused-function)*/
   NAnnotatedError annotated;
-  annotated.error = error;
+  annotated.error  = error;
   annotated.reason = reason;
 
   return annotated;
@@ -2338,6 +2338,12 @@ Uses IEC binary prefixes (1024). string must not be NULL and max_string_length m
 */
 extern NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_string_length, uint_large byte_count);
 
+/*
+nexus_strings_bytes_format_f_real is the floating-point form of nexus_strings_bytes_format.
+It preserves fractional byte values produced by statistical and rate calculations.
+*/
+extern NexusStringFormatResult nexus_strings_bytes_format_f_real(char *string, uint_large max_string_length, f_real byte_count);
+
 #ifndef NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES
 #  define NEXUS_STRINGS_QUANTITY_DEFAULT_DECIMAL_PLACES 3u
 #endif
@@ -2638,7 +2644,6 @@ When found, writes the pointer to the match into out_position when out_position 
 */
 extern boolean nexus_strings_string_find(const char *haystack, const char *needle, const char **out_position);
 
-
 /*
 nexus_strings_string_split splits string at each occurrence of delimiter.
 
@@ -2792,7 +2797,7 @@ Returns:
 NULL sorts before any non-NULL string. Two NULL strings compare equal.
 */
 static int32 nexus_strings_string_compare_alt(const char *string_a, const char *string_b) { /* NOLINT(clang-diagnostic-unused-function) */
- uint_large i;
+  uint_large i;
 
   if (string_a == NULL || string_b == NULL) {
     return (string_a == string_b) ? 0 : ((string_a == NULL) ? -1 : 1); /* NOLINT(readability-avoid-nested-conditional-operator) */
@@ -3188,8 +3193,15 @@ nexus_time_from_local_datetime_string parses a local calendar timestamp string i
 extern boolean nexus_time_from_local_datetime_string(const char *string, NexusTime *out_time);
 
 /*
+nexus_time_duration_format_f_real_nanoseconds writes a floating-point nanosecond
+value as a human-readable interval (ns, us, ms, s) using decimal SI scaling.
+Unlike NexusDuration, this preserves sub-nanosecond statistical values.
+*/
+extern NexusStringFormatResult nexus_time_duration_format_f_real_nanoseconds(char *string, uint_large max_string_length, f_real nanoseconds);
+
+/*
 nexus_time_duration_format writes duration as a human-readable interval (ns, us, ms, s).
-Uses decimal SI scaling (1000). string must not be NULL and max_string_length must be greater than zero.
+Uses decimal SI scaling (1000) and delegates to nexus_time_duration_format_f_real_nanoseconds.
 */
 extern NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_string_length, NexusDuration duration);
 
@@ -5434,6 +5446,159 @@ Returns NEXUS_ERROR_PERMISSION_DENIED when the kernel denies PMU access.
 Returns NEXUS_ERROR_IO when the platform query fails.
 */
 extern NError nexus_hardware_cache_misses_get(uint64 *count);
+
+/*
+NexusPerformanceMetricKind identifies portable performance measurements that
+Nexus can obtain from hardware, kernel, runtime, or allocator sources.
+
+A metric kind describes meaning; source_kind describes where the observation
+came from. The same logical metric may therefore be exposed by more than one
+source without conflating their semantics.
+*/
+typedef enum NexusPerformanceMetricKind {
+  NPMK_CPU_CYCLES,
+  NPMK_REFERENCE_CPU_CYCLES,
+  NPMK_RETIRED_INSTRUCTIONS,
+  NPMK_CACHE_REFERENCES,
+  NPMK_CACHE_MISSES,
+  NPMK_BRANCH_INSTRUCTIONS,
+  NPMK_BRANCH_MISSES,
+  NPMK_BUS_CYCLES,
+  NPMK_STALLED_FRONTEND_CYCLES,
+  NPMK_STALLED_BACKEND_CYCLES,
+
+  NPMK_L1D_READS,
+  NPMK_L1D_READ_MISSES,
+  NPMK_L1I_READS,
+  NPMK_L1I_READ_MISSES,
+  NPMK_LLC_READS,
+  NPMK_LLC_READ_MISSES,
+  NPMK_DTLB_READS,
+  NPMK_DTLB_READ_MISSES,
+  NPMK_ITLB_READS,
+  NPMK_ITLB_READ_MISSES,
+
+  NPMK_CPU_CLOCK_NANOSECONDS,
+  NPMK_TASK_CLOCK_NANOSECONDS,
+  NPMK_PAGE_FAULTS,
+  NPMK_MINOR_PAGE_FAULTS,
+  NPMK_MAJOR_PAGE_FAULTS,
+  NPMK_CONTEXT_SWITCHES,
+  NPMK_CPU_MIGRATIONS,
+  NPMK_ALIGNMENT_FAULTS,
+  NPMK_EMULATION_FAULTS,
+
+  NPMK_ARCHITECTURE_CLOCK_TICKS,
+  NPMK_PROCESS_USER_CPU_NANOSECONDS,
+  NPMK_PROCESS_SYSTEM_CPU_NANOSECONDS,
+  NPMK_PROCESS_MAX_RESIDENT_BYTES,
+  NPMK_BLOCK_INPUT_OPERATIONS,
+  NPMK_BLOCK_OUTPUT_OPERATIONS,
+
+  NPMK_DEBUG_ALLOCATIONS,
+  NPMK_DEBUG_BYTES_ALLOCATED,
+  NPMK_DEBUG_FREES,
+  NPMK_DEBUG_BYTES_FREED,
+  NPMK_DEBUG_LIVE_BYTES,
+  NPMK_DEBUG_PEAK_LIVE_BYTES,
+  NPMK_DEBUG_LIVE_BLOCKS,
+
+  NPMK_ALLOCATOR_IN_USE_BYTES,
+  NPMK_ALLOCATOR_ARENA_BYTES,
+  NPMK_ALLOCATOR_MMAP_BYTES,
+
+  NPMK_COUNT
+} NexusPerformanceMetricKind;
+
+typedef enum NexusPerformanceMetricSourceKind {
+  NPMSK_PMU_HARDWARE,
+  NPMSK_PMU_CACHE,
+  NPMSK_KERNEL_SOFTWARE,
+  NPMSK_ARCHITECTURE_CLOCK,
+  NPMSK_RESOURCE_USAGE,
+  NPMSK_MEMORY_DEBUGGER,
+  NPMSK_SYSTEM_ALLOCATOR,
+
+  NPMSK_COUNT
+} NexusPerformanceMetricSourceKind;
+
+typedef enum NexusPerformanceMetricValueKind {
+  NPMVK_COUNTER,
+  NPMVK_GAUGE,
+
+  NPMVK_COUNT
+} NexusPerformanceMetricValueKind;
+
+typedef enum NexusPerformanceMetricUnitKind {
+  NPMUK_COUNT,
+  NPMUK_NANOSECONDS,
+  NPMUK_BYTES,
+  NPMUK_TICKS,
+
+  NPMUK_COUNT_KIND
+} NexusPerformanceMetricUnitKind;
+
+typedef struct NexusPerformanceMetricDescriptor {
+  NexusPerformanceMetricKind       kind;
+  NexusPerformanceMetricSourceKind source_kind;
+  NexusPerformanceMetricValueKind  value_kind;
+  NexusPerformanceMetricUnitKind   unit_kind;
+
+  const char *label;
+  const char *source_label;
+
+  NexusDuration recommended_sampling_interval;
+} NexusPerformanceMetricDescriptor;
+
+typedef struct NexusPerformanceMetricReader NexusPerformanceMetricReader;
+
+/*
+Returns Nexus' built-in performance metric catalog. The returned descriptor
+array has process lifetime and must not be modified or freed.
+*/
+extern const NexusPerformanceMetricDescriptor *nexus_hardware_performance_metrics_get(uint32 *out_metric_count);
+
+/*
+Creates a reader for descriptor and probes availability immediately. PMU readers
+are attached to the calling thread at creation time; another thread may read the
+resulting descriptor afterward. This lets a sampler thread observe the thread
+that created the reader rather than accidentally profiling itself.
+*/
+extern NError nexus_hardware_performance_metric_reader_create(const NexusPerformanceMetricDescriptor *descriptor,
+                                                              NexusPerformanceMetricReader          **out_reader);
+
+/* Reads the current cumulative counter or gauge value. */
+extern NError nexus_hardware_performance_metric_reader_read(NexusPerformanceMetricReader *reader, uint64 *out_value);
+
+/* Enables/disables sources which support explicit counting control. Other sources return success and remain readable. */
+extern NError nexus_hardware_performance_metric_reader_enabled_set(NexusPerformanceMetricReader *reader, boolean enabled);
+
+extern void nexus_hardware_performance_metric_reader_destroy(NexusPerformanceMetricReader *reader);
+
+/*
+NexusPerformanceRawEventConfiguration describes a provider-native counting
+source for advanced architecture-specific events. On Linux, source_type,
+config, config1, and config2 map directly to perf_event_attr and therefore
+support PERF_TYPE_RAW and dynamic PMUs discovered through sysfs. Other
+platforms may reject this facility as unsupported.
+*/
+typedef struct NexusPerformanceRawEventConfiguration {
+  uint32 source_type;
+  uint64 config;
+  uint64 config1;
+  uint64 config2;
+
+  boolean exclude_kernel;
+  boolean exclude_hypervisor;
+} NexusPerformanceRawEventConfiguration;
+
+typedef struct NexusPerformanceRawEventReader NexusPerformanceRawEventReader;
+
+extern NError nexus_hardware_performance_raw_event_reader_create(NexusPerformanceRawEventConfiguration configuration,
+                                                                 NexusPerformanceRawEventReader      **out_reader);
+extern NError nexus_hardware_performance_raw_event_reader_read(NexusPerformanceRawEventReader *reader, uint64 *out_value);
+extern NError nexus_hardware_performance_raw_event_reader_enabled_set(NexusPerformanceRawEventReader *reader, boolean enabled);
+extern void   nexus_hardware_performance_raw_event_reader_destroy(NexusPerformanceRawEventReader *reader);
 
 /*
 nexus_hardware_floating_point_denormal_flush_push enables FTZ/DAZ on the calling

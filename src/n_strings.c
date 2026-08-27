@@ -223,6 +223,34 @@ NexusStringFormatResult nexus_strings_bytes_format(char *string, uint_large max_
   return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", value, units[unit_index]);
 }
 
+NexusStringFormatResult nexus_strings_bytes_format_f_real(char *string, uint_large max_string_length, f_real byte_count) {
+  f_real absolute_value;
+  f_real value;
+  uint32 unit_index;
+
+  NEXUS_ASSERT_DEBUG(string != NULL);
+  NEXUS_ASSERT_DEBUG(max_string_length > 0);
+
+  absolute_value = byte_count >= (f_real)0 ? byte_count : -byte_count;
+
+  if (absolute_value < (f_real)NEXUS_STRINGS_BYTES_PER_KIB) {
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f B", (double)byte_count);
+  }
+
+  value      = byte_count;
+  unit_index = 0;
+  while ((value >= (f_real)NEXUS_STRINGS_BYTES_PER_KIB || value <= -(f_real)NEXUS_STRINGS_BYTES_PER_KIB) && unit_index < 4U) {
+    value /= (f_real)NEXUS_STRINGS_BYTES_PER_KIB;
+    unit_index++;
+  }
+
+  if (value >= (f_real)10 || value <= (f_real)-10) {
+    return nexus_strings_string_format_with_truncation(string, max_string_length, "%.1f %s", (double)value, units[unit_index]);
+  }
+
+  return nexus_strings_string_format_with_truncation(string, max_string_length, "%.2f %s", (double)value, units[unit_index]);
+}
+
 static uint32 n_strings_decimal_places_clamp(uint32 decimal_places) {
   if (decimal_places > 9u) {
     return 9u;

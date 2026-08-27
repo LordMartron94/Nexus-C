@@ -325,9 +325,9 @@ NexusDateTime nexus_time_to_local_datetime(NexusTime utc_time) {
 }
 
 NexusTime nexus_time_from_local_datetime(NexusDateTime date_time) {
-  NexusTime   utc_time;
-  struct tm   tm_info;
-  time_t      timer_seconds;
+  NexusTime utc_time;
+  struct tm tm_info;
+  time_t    timer_seconds;
 #if NEXUS_PLATFORM_WINDOWS
   __time64_t t64;
 #endif
@@ -359,13 +359,13 @@ NexusTime nexus_time_from_local_datetime(NexusDateTime date_time) {
   }
 #endif
 
-  utc_time.time = (uint64)timer_seconds * NEXUS_NANOSECONDS_PER_SECOND + (uint64)date_time.nanosecond;
+  utc_time.time = ((uint64)timer_seconds * NEXUS_NANOSECONDS_PER_SECOND) + (uint64)date_time.nanosecond;
   return utc_time;
 }
 
 boolean nexus_time_datetime_parse(const char *string, NexusDateTime *out_date_time) {
-  int parsed_fields;
-  int year;
+  int          parsed_fields;
+  int          year;
   unsigned int month;
   unsigned int day;
   unsigned int hour;
@@ -411,16 +411,14 @@ boolean nexus_time_from_local_datetime_string(const char *string, NexusTime *out
   return TRUE;
 }
 
-NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_string_length, NexusDuration duration) {
-  f_real nanoseconds;
+NexusStringFormatResult nexus_time_duration_format_f_real_nanoseconds(char *string, uint_large max_string_length, f_real nanoseconds) {
   f_real absolute_nanoseconds;
   f_real scaled_value;
 
   NEXUS_ASSERT_DEBUG(string != NULL);
   NEXUS_ASSERT_DEBUG(max_string_length > 0);
 
-  nanoseconds          = (f_real)duration.nanoseconds;
-  absolute_nanoseconds = duration.nanoseconds >= 0 ? nanoseconds : -nanoseconds;
+  absolute_nanoseconds = nanoseconds >= (f_real)0 ? nanoseconds : -nanoseconds;
 
   if (absolute_nanoseconds < (f_real)NEXUS_NANOSECONDS_PER_MICROSECOND) {
     return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f ns", nanoseconds);
@@ -438,6 +436,10 @@ NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_
 
   scaled_value = nanoseconds / (f_real)NEXUS_NANOSECONDS_PER_SECOND;
   return nexus_strings_string_format_with_truncation(string, max_string_length, "%.3f s", scaled_value);
+}
+
+NexusStringFormatResult nexus_time_duration_format(char *string, uint_large max_string_length, NexusDuration duration) {
+  return nexus_time_duration_format_f_real_nanoseconds(string, max_string_length, (f_real)duration.nanoseconds);
 }
 
 NexusStringFormatResult nexus_time_datetime_format(char *string, uint_large max_string_length, NexusDateTime date_time) {
