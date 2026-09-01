@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include "../nexus.h"
@@ -1183,8 +1184,9 @@ NError nexus_strings_string_parse_real64(const char *string, real64 *out_value) 
   }
 
   parse_source = string;
+  errno        = 0;
   parsed_value = strtod(parse_source, &end_pointer);
-  if (end_pointer == parse_source) {
+  if (end_pointer == parse_source || end_pointer[0] != '\0' || errno == ERANGE) {
     return NEXUS_ERROR_INVALID_ARGUMENT;
   }
 

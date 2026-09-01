@@ -264,6 +264,42 @@ NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buffer, ui
   return NEXUS_ERROR_NONE;
 }
 
+NError nexus_filesystem_file_read_next(NexusFileHandle *file_handle, byte *buffer, uint_large byte_length, uint_large *out_bytes_read,
+                                       boolean *out_reached_eof) {
+  size_t read_count;
+  FILE  *file;
+
+  NEXUS_ASSERT_DEBUG(file_handle != NULL);
+  NEXUS_ASSERT_DEBUG(out_bytes_read != NULL);
+  NEXUS_ASSERT_DEBUG(out_reached_eof != NULL);
+
+  if (file_handle == NULL || out_bytes_read == NULL || out_reached_eof == NULL || (byte_length > 0U && buffer == NULL)) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *out_bytes_read  = 0U;
+  *out_reached_eof = FALSE;
+  if (byte_length == 0U) {
+    return NEXUS_ERROR_NONE;
+  }
+  if (byte_length > (uint_large)((size_t)-1)) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  file            = (FILE *)file_handle;
+  read_count      = fread(buffer, 1U, (size_t)byte_length, file);
+  *out_bytes_read = (uint_large)read_count;
+
+  if (ferror(file) != 0) {
+    return nexus_errors_from_errno();
+  }
+  if (read_count < (size_t)byte_length && feof(file) != 0) {
+    *out_reached_eof = TRUE;
+  }
+
+  return NEXUS_ERROR_NONE;
+}
+
 NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length, uint_large *out_bytes_read) {
   FILE *file;
 
@@ -291,6 +327,100 @@ NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffe
     (*out_bytes_read)--;
   }
 
+  return NEXUS_ERROR_NONE;
+}
+
+NError nexus_filesystem_file_read_line_allocated(NexusFileHandle *file_handle, char **io_buffer, uint_large *io_buffer_capacity,
+                                                 uint_large *out_bytes_read, boolean *out_reached_eof) {
+  FILE      *file;
+  char      *expanded_buffer;
+  uint_large count;
+  uint_large capacity;
+  uint_large expanded_capacity;
+  int        character;
+
+  if (file_handle == NULL || io_buffer == NULL || io_buffer_capacity == NULL || out_bytes_read == NULL || out_reached_eof == NULL) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  file             = (FILE *)file_handle;
+  count            = 0U;
+  capacity         = *io_buffer_capacity;
+  *out_bytes_read  = 0U;
+  *out_reached_eof = FALSE;
+
+  if (*io_buffer == NULL || capacity == 0U) {
+    capacity   = 256U;
+    *io_buffer = (char *)malloc((size_t)capacity);
+    if (*io_buffer == NULL) {
+      *io_buffer_capacity = 0U;
+      return NEXUS_ERROR_CAPACITY;
+    }
+    *io_buffer_capacity = capacity;
+  }
+
+  for (;;) {
+    character = fgetc(file);
+    if (character == EOF) {
+      if (ferror(file) != 0) {
+        return nexus_errors_from_errno();
+      }
+      *out_reached_eof = TRUE;
+      break;
+    }
+    if (character == '\n') {
+      break;
+    }
+
+    if (character == '\r') {
+      int next_character;
+
+      next_character = fgetc(file);
+      if (next_character != '\n' && next_character != EOF) {
+        if (ungetc(next_character, file) == EOF) {
+          return NEXUS_ERROR_IO;
+        }
+      } else if (next_character == EOF) {
+        if (ferror(file) != 0) {
+          return nexus_errors_from_errno();
+        }
+        *out_reached_eof = TRUE;
+      }
+      break;
+    }
+
+    if (count == UINT_LARGE_MAX_VAL - 1U) {
+      return NEXUS_ERROR_CAPACITY;
+    }
+    if (count + 1U >= capacity) {
+      if (capacity > UINT_LARGE_MAX_VAL / 2U) {
+        expanded_capacity = count + 2U;
+      } else {
+        expanded_capacity = capacity * 2U;
+      }
+      if (expanded_capacity <= count + 1U || expanded_capacity > (uint_large)((size_t)-1)) {
+        return NEXUS_ERROR_CAPACITY;
+      }
+      expanded_buffer = (char *)realloc(*io_buffer, (size_t)expanded_capacity);
+      if (expanded_buffer == NULL) {
+        return NEXUS_ERROR_CAPACITY;
+      }
+      *io_buffer          = expanded_buffer;
+      *io_buffer_capacity = expanded_capacity;
+      capacity            = expanded_capacity;
+    }
+    (*io_buffer)[count++] = (char)character;
+
+    if (*out_reached_eof != FALSE) {
+      break;
+    }
+  }
+
+  if (count > 0U && (*io_buffer)[count - 1U] == '\r') {
+    count--;
+  }
+  (*io_buffer)[count] = '\0';
+  *out_bytes_read     = count;
   return NEXUS_ERROR_NONE;
 }
 

@@ -771,7 +771,7 @@ extern f_real nexus_real_round(f_real value, NexusRealRoundMode mode);
 nexus_real_is_finite returns TRUE when value is neither NaN nor positive/negative infinity.
 */
 static boolean nexus_real_is_finite(f_real value) /* NOLINT */ {
-  return (value == value) && (value < REAL64_MAX_VAL) && (value > -REAL64_MAX_VAL);
+  return (value == value) && (value <= (f_real)F_REAL_MAX) && (value >= (f_real)-F_REAL_MAX);
 }
 
 /*
@@ -4395,12 +4395,34 @@ extern NError nexus_filesystem_file_read(NexusFileHandle *file_handle, byte *buf
                                          uint_large *out_bytes_read);
 
 /*
+nexus_filesystem_file_read_next reads from the file's current position without
+seeking first.
+
+out_reached_eof is TRUE after a short read caused by EOF. This makes the API
+suitable for streaming files whose size or current offset exceeds 32 bits.
+*/
+extern NError nexus_filesystem_file_read_next(NexusFileHandle *file_handle, byte *buffer, uint_large byte_length, uint_large *out_bytes_read,
+                                              boolean *out_reached_eof);
+
+/*
 nexus_filesystem_file_read_line reads one line from an opened text file into buffer.
 
 The line terminator is not copied. A short read at EOF returns the bytes read with NEXUS_ERROR_NONE.
 Returns NEXUS_ERROR_INVALID_ARGUMENT when buffer_max_length is zero.
 */
 extern NError nexus_filesystem_file_read_line(NexusFileHandle *file_handle, char *buffer, uint_large buffer_max_length, uint_large *out_bytes_read);
+
+/*
+nexus_filesystem_file_read_line_allocated reads one complete line with no fixed
+line-length ceiling.
+
+io_buffer and io_buffer_capacity form reusable caller-owned storage. The buffer
+is grown as necessary and always NUL-terminated on success. CR and LF line
+terminators are not copied. out_reached_eof is TRUE when EOF was encountered
+while producing this line, including the final unterminated line.
+*/
+extern NError nexus_filesystem_file_read_line_allocated(NexusFileHandle *file_handle, char **io_buffer, uint_large *io_buffer_capacity,
+                                                        uint_large *out_bytes_read, boolean *out_reached_eof);
 
 /* ---------------------------------------------------------------------------- */
 /* BITS                                                                        */
@@ -5830,3 +5852,16 @@ allocation.
 Returns TRUE when sufficient capacity exists after the call.
 */
 extern boolean nexus_data_array_reserve(void **array, uint32 *capacity, uint32 required_count, uint_large element_size);
+
+/*
+NexusDataArrayCompareFunction has qsort-compatible ordering semantics.
+*/
+typedef int NexusDataArrayCompareFunction(const void *element_a, const void *element_b);
+
+/*
+nexus_data_array_sort sorts element_count fixed-size elements in place.
+
+The function rejects sizes which cannot be represented by the platform C
+runtime and otherwise delegates the implementation boundary to Nexus.
+*/
+extern NError nexus_data_array_sort(void *elements, uint64 element_count, uint_large element_size, NexusDataArrayCompareFunction *compare);

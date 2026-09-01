@@ -750,3 +750,21 @@ boolean nexus_data_array_reserve(void **array, uint32 *capacity, uint32 required
 
   return TRUE;
 }
+
+NError nexus_data_array_sort(void *elements, uint64 element_count, uint_large element_size, NexusDataArrayCompareFunction *compare) {
+  if (compare == NULL || element_size == 0U || (element_count > 0U && elements == NULL)) {
+    return NEXUS_ERROR_INVALID_ARGUMENT;
+  }
+  if (element_count <= 1U) {
+    return NEXUS_ERROR_NONE;
+  }
+  if (element_count > (uint64)((size_t)-1) || element_size > (uint_large)((size_t)-1)) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+  if ((uint_large)element_count > UINT_LARGE_MAX_VAL / element_size || (size_t)element_count > (size_t)-1 / (size_t)element_size) {
+    return NEXUS_ERROR_CAPACITY;
+  }
+
+  qsort(elements, (size_t)element_count, (size_t)element_size, compare);
+  return NEXUS_ERROR_NONE;
+}
